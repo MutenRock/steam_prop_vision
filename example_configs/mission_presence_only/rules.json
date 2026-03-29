@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "when": "presence",
+      "cooldown_s": 5.0,
+      "then": [
+        {"type": "udp", "msg": "STEAM/PRESENCE/DETECTED"},
+        {"type": "log", "msg": "Mouvement détecté"}
+      ]
+    }
+  ]
+}

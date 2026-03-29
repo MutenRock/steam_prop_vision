@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "when": "presence",
+      "cooldown_s": 3.0,
+      "then": [
+        {"type": "udp", "msg": "STEAM/M1/PLAYER_IN"},
+        {"type": "log", "msg": "Joueur détecté — mission démarrée"}
+      ]
+    },
+    {
+      "when": "bottle",
+      "require_presence": true,
+      "cooldown_s": 2.0,
+      "then": [
+        {"type": "udp", "msg": "STEAM/M1/BOTTLE_OK"},
+        {"type": "inject_detection", "label": "bottle", "conf": 0.9}
+      ]
+    },
+    {
+      "when": "book",
+      "require_presence": true,
+      "cooldown_s": 2.0,
+      "then": [
+        {"type": "udp", "msg": "STEAM/M1/BOOK_OK"}
+      ]
+    },
+    {
+      "when": "scissors",
+      "require_presence": true,
+      "cooldown_s": 2.0,
+      "then": [
+        {"type": "udp", "msg": "STEAM/M1/SCISSORS_OK"}
+      ]
+    }
+  ]
+}

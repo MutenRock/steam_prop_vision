@@ -1,0 +1,22 @@
+{
+  "mission": "mission_generic_yolo",
+  "detectors": [
+    {
+      "type": "presence",
+      "mode": "yolo_person",
+      "model": "yolov8n.pt",
+      "confidence": 0.55,
+      "stable_frames": 10
+    },
+    {
+      "type": "yolo_classes",
+      "model": "yolov8n.pt",
+      "classes": ["bottle", "book", "scissors", "cup", "cell phone"],
+      "confidence": 0.70,
+      "stable_frames": 15
+    }
+  ],
+  "trigger": {
+    "start_on": "presence"
+  }
+}

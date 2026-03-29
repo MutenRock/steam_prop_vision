@@ -1,0 +1,14 @@
+{
+  "mission": "mission_presence_only",
+  "detectors": [
+    {
+      "type": "presence",
+      "mode": "motion",
+      "confidence": 0.5,
+      "stable_frames": 8
+    }
+  ],
+  "trigger": {
+    "start_on": "presence"
+  }
+}

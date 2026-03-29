@@ -31,6 +31,7 @@ class App(tk.Tk):
 
         self.rules = RuleEngine()
         self.router = ActionRouter()
+        self._detectors = []  # liste BaseDetector chargés depuis config
         self.rules_status = tk.StringVar(value="actions: (no rules loaded)")
 
         self.running = False
@@ -209,6 +210,16 @@ class App(tk.Tk):
         ok, msg = self.router.load_rules(folder)
         self.rules_status.set("actions: " + msg)
 
+
+        from core.detectors import build_detectors
+        try:
+            self._detectors = build_detectors(loaded.data)
+            det_types = [type(d).__name__ for d in self._detectors]
+            print(f"[detectors] Loaded: {det_types}")
+        except Exception as e:
+            self._detectors = []
+            print(f"[detectors] Build error: {e}")
+            
         trig = loaded.data.get("trigger", {})
         start_on = trig.get("start_on", "PLAQUE")
         self.trigger_mode.set(start_on if start_on in ("PLAQUE","PRESENCE") else "PLAQUE")
@@ -288,6 +299,21 @@ class App(tk.Tk):
             cv2.putText(frame, txt1, (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0,255,255), 2)
             cv2.putText(frame, txt2, (10, 44), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0,255,255), 2)
 
+        if self._detectors:
+            for det in self._detectors:
+                try:
+                    results = det.process_frame(frame)
+                except Exception:
+                    results = []
+                for r in results:
+                    action_lines = self.router.handle(
+                        key=r.label,
+                        presence=(r.label == "presence"),
+                        sim_engine=self.engine,
+                        default_conf=r.confidence,
+                    )
+                    self._action_log_lines += action_lines
+                    self.engine.inject_detection(r.label, r.confidence)
         self.lbl_presence.configure(text=f"Presence: {validated.presence} (score={validated.presence_score:.3f}) mode={self.rules.presence.mode}")
         if self.rules.last_plaque:
             self.lbl_plaque.configure(text=f"Plaque candidate: {self.rules.last_plaque.plaque_id} score={self.rules.last_plaque.score:.2f} good={self.rules.last_plaque.good_matches}")
