@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "when": "presence",
+      "cooldown_s": 2.0,
+      "then": [
+        {
+          "type": "udp",
+          "msg": "LOXONE:PRESENCE=1"
+        }
+      ]
+    },
+    {
+      "when": "PLAQUE:WantedRH",
+      "require_presence": true,
+      "cooldown_s": 2.0,
+      "then": [
+        {
+          "type": "udp",
+          "msg": "CMD:START"
+        }
+      ]
+    }
+  ]
+}

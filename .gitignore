@@ -1,0 +1,20 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Config locale (contient IP, ports, secrets)
+config/local.yaml
+
+# Assets lourds (vidéos ne vont PAS dans git)
+assets/video/*.mp4
+assets/video/*.avi
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
