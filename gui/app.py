@@ -325,7 +325,7 @@ class App(tk.Tk):
         ok, frame = cap.read()
         if not ok or frame is None:
             cap.release()
-            self._set_cam_placeholder(f"⚠ Flux ouvert mais frame illisible : {source}")
+            self._set_cam_placeholder("\u26a0 Flux ouvert mais frame illisible : " + str(source))
             return
 
         self._cap = cap
