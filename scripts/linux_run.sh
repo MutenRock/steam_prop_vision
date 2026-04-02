@@ -1,13 +1,14 @@
-#!/bin/bash
-# S.T.E.A.M Vision — STYX run script
-# Usage : bash scripts/linux_run.sh [--loxone 192.168.1.50] [--no-udp] [--no-audio]
+#!/usr/bin/env bash
+set -euo pipefail
 
-set -e
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(dirname "$SCRIPT_DIR")"
+# Remonte à la racine du projet (un niveau au-dessus de scripts/)
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$PROJECT_ROOT"
 
-cd "$ROOT"
-source .venv/bin/activate
+export PYTHONPATH="$PROJECT_ROOT:${PYTHONPATH:-}"
 
 echo "=== S.T.E.A.M Vision — STYX ==="
-python apps/rpi/main.py "$@"
+echo "ROOT   : $PROJECT_ROOT"
+echo "PYTHON : $(python --version)"
+
+exec python apps/rpi/main.py "$@"
