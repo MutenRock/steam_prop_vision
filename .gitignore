@@ -18,3 +18,9 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+PATCHES/app.py.no_cam_startup.patch.md
+PATCHES/app.py.patch.md
+PATCHES/CHANGELOG_patch_camera_manager_v2.md
+PATCHES/CHANGELOG_patch_generic_detectors.md
+PATCHES/CHANGELOG_patch_no_cam_startup.md
+PATCHES/requirements_update.md
