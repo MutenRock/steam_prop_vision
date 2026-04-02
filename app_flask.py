@@ -1,7 +1,7 @@
 # app_flask.py  -  steam_prop_vision (Pi headless)
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-import os, time, threading, json, argparse
+import os, time, threading, argparse
 os.environ.setdefault('OPENCV_LOG_LEVEL', 'SILENT')
 
 from flask import Flask, Response, request, jsonify
@@ -19,7 +19,7 @@ CAM_HEIGHT    = 720
 JPEG_QUALITY  = 80
 AWB_WARMUP_S  = 2.0
 FLASK_PORT    = 5050
-LOOP_INTERVAL = 0.05   # ~20 fps pipeline
+LOOP_INTERVAL = 0.05   # ~20 fps
 
 # ── Globals ──────────────────────────────────────────────────────────────────
 app        = Flask(__name__)
@@ -154,35 +154,53 @@ def gen_frames():
 # ── Routes ────────────────────────────────────────────────────────────────────
 @app.route('/')
 def index():
-    s = _status
-    return f"""<!DOCTYPE html><html><head>
+    return """<!DOCTYPE html><html><head>
 <title>steam_prop_vision</title>
 <style>
-  body{{background:#111;color:#eee;font-family:monospace;padding:16px;margin:0}}
-  img{{max-width:100%;border:1px solid #333}}
-  .card{{background:#222;padding:12px;margin:8px 0;border-radius:6px;line-height:1.8}}
-  input{{background:#333;color:#eee;border:1px solid #555;padding:4px;width:360px}}
-  button{{background:#444;color:#eee;border:none;padding:6px 14px;cursor:pointer;border-radius:4px}}
-  h2{{color:#0df}}
+  body{background:#111;color:#eee;font-family:monospace;padding:16px;margin:0}
+  img{max-width:100%;border:1px solid #333}
+  .card{background:#222;padding:12px;margin:8px 0;border-radius:6px;line-height:1.8}
+  input{background:#333;color:#eee;border:1px solid #555;padding:4px;width:360px}
+  button{background:#444;color:#eee;border:none;padding:6px 14px;cursor:pointer;border-radius:4px}
+  h2{color:#0df}
 </style>
-<meta http-equiv="refresh" content="2">
 </head><body>
 <h2>&#127909; steam_prop_vision</h2>
 <img src="/stream"><br>
-<div class="card">
-  <b>FSM:</b> {s['fsm']} &nbsp;|&nbsp; <b>t:</b> {s['t']}s<br>
-  <b>Presence:</b> {s['presence']} ({s['presence_score']})<br>
-  <b>Plaque:</b> {s['plaque'] or 'none'} ({s['plaque_score']})<br>
-  <b>Config:</b> {s['config_folder'] or '(none)'}
-</div>
-<div class="card"><b>Action log:</b><br>
-{'<br>'.join(s['action_log']) or '(none)'}
-</div>
+<div class="card" id="status">chargement...</div>
+<div class="card" id="actions"><b>Action log:</b><br>(none)</div>
 <hr>
-<form method="POST" action="/api/config">
-  Config folder: <input name="folder" placeholder="/home/steam/steam_prop_vision/configs/enigme1">
+<form onsubmit="loadConfig(event)">
+  Config folder: <input id="cfolder" placeholder="/home/steam/steam_prop_vision/configs/enigme1">
   <button type="submit">Load</button>
 </form>
+<script>
+function refresh() {
+  fetch('/api/status')
+    .then(r => r.json())
+    .then(s => {
+      document.getElementById('status').innerHTML =
+        '<b>FSM:</b> ' + s.fsm + ' &nbsp;|&nbsp; <b>t:</b> ' + s.t + 's<br>' +
+        '<b>Presence:</b> ' + s.presence + ' (' + s.presence_score + ')<br>' +
+        '<b>Plaque:</b> ' + (s.plaque || 'none') + ' (' + s.plaque_score + ')<br>' +
+        '<b>Config:</b> ' + (s.config_folder || '(none)');
+      document.getElementById('actions').innerHTML =
+        '<b>Action log:</b><br>' +
+        (s.action_log.length ? s.action_log.join('<br>') : '(none)');
+    });
+}
+setInterval(refresh, 1000);
+refresh();
+
+function loadConfig(e) {
+  e.preventDefault();
+  fetch('/api/config', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({folder: document.getElementById('cfolder').value})
+  }).then(r => r.json()).then(d => alert(JSON.stringify(d)));
+}
+</script>
 </body></html>"""
 
 @app.route('/stream')
