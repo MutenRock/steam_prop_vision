@@ -1,0 +1,60 @@
+# rules.yaml — S.T.E.A.M Vision : règles de détection
+# Chaque label YOLO peut avoir ses propres actions et paramètres.
+#
+# enabled      : true/false — activer/désactiver le label
+# cooldown     : secondes entre deux déclenchements du même label
+# min_duration : secondes de détection continue avant déclenchement (0 = immédiat)
+# actions      : liste d'actions à exécuter lors du déclenchement
+#   - type: audio        → joue un fichier aléatoire dans assets/audio/<subdir>
+#   - type: video        → joue une vidéo fullscreen depuis assets/video/<subdir>
+#   - type: udp          → envoie un message UDP à Loxone
+#   - type: http         → fait une requête HTTP GET
+
+rules:
+  person:
+    enabled: true
+    cooldown: 5
+    min_duration: 2.0
+    actions:
+      - type: audio
+        subdir: ""
+      - type: video
+        subdir: ""
+      - type: udp
+        message: "STEAM_DETECT_PERSON"
+
+  chair:
+    enabled: false
+    cooldown: 10
+    min_duration: 0
+    actions:
+      - type: udp
+        message: "STEAM_DETECT_CHAIR"
+
+  backpack:
+    enabled: false
+    cooldown: 10
+    min_duration: 0
+    actions:
+      - type: udp
+        message: "STEAM_DETECT_BACKPACK"
+
+  # Modèle custom : ex. plaque d'immatriculation (à entraîner)
+  plate:
+    enabled: false
+    cooldown: 3
+    min_duration: 0
+    actions:
+      - type: audio
+        subdir: "plates"
+      - type: udp
+        message: "STEAM_DETECT_PLATE"
+      - type: http
+        url: "http://192.168.1.50/trigger/plate"
+
+# Comportement global par défaut pour les labels non listés
+default:
+  enabled: false
+  cooldown: 10
+  min_duration: 0
+  actions: []

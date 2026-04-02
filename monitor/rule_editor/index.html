@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S.T.E.A.M — Rule Editor</title>
+<style>
+:root,[data-theme="dark"]{
+  --bg:#171614;--surface:#1c1b19;--surface2:#242321;--border:#393836;
+  --text:#cdccca;--muted:#797876;--faint:#5a5957;
+  --primary:#4f98a3;--primary-h:#227f8b;
+  --success:#6daa45;--error:#dd6974;--warning:#fdab43;
+  --radius:0.5rem;--trans:180ms cubic-bezier(.16,1,.3,1);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased;scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;
+  font-size:14px;min-height:100vh;display:flex;flex-direction:column}
+header{background:var(--surface);border-bottom:1px solid var(--border);
+  padding:12px 24px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10}
+.logo{display:flex;align-items:center;gap:8px}
+.logo svg{color:var(--primary)}
+h1{font-size:16px;font-weight:600;letter-spacing:.5px}
+.badge{background:var(--primary);color:#fff;font-size:11px;padding:2px 8px;border-radius:99px;font-weight:600}
+.actions-bar{display:flex;gap:8px;margin-left:auto;align-items:center}
+button{cursor:pointer;border:none;border-radius:var(--radius);padding:7px 14px;
+  font-size:13px;font-weight:500;transition:background var(--trans),transform var(--trans)}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover{background:var(--primary-h)}
+.btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border)}
+.btn-ghost:hover{color:var(--text);border-color:var(--text)}
+.btn-danger{background:transparent;color:var(--error);border:1px solid transparent;padding:4px 8px}
+.btn-danger:hover{background:oklch(from var(--error) l c h / 0.1)}
+.btn-sm{padding:4px 10px;font-size:12px}
+main{flex:1;padding:24px;max-width:1100px;margin-inline:auto;width:100%}
+.toolbar{display:flex;gap:10px;margin-bottom:20px;align-items:center;flex-wrap:wrap}
+.toolbar input{background:var(--surface);border:1px solid var(--border);color:var(--text);
+  border-radius:var(--radius);padding:7px 12px;font-size:13px;width:200px;outline:none}
+.toolbar input:focus{border-color:var(--primary)}
+.rules-grid{display:flex;flex-direction:column;gap:12px}
+.rule-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;transition:border-color var(--trans)}
+.rule-card:hover{border-color:var(--primary)}
+.rule-card.disabled{opacity:.5}
+.rule-header{display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;
+  background:var(--surface2);border-bottom:1px solid var(--border);user-select:none}
+.rule-header:hover{background:oklch(from var(--primary) l c h / 0.06)}
+.label-name{font-weight:600;font-size:14px;flex:1}
+.rule-badges{display:flex;gap:6px;align-items:center}
+.pill{font-size:11px;padding:2px 8px;border-radius:99px;font-weight:500}
+.pill-enabled{background:oklch(from var(--success) l c h / 0.15);color:var(--success)}
+.pill-disabled{background:oklch(from var(--faint) l c h / 0.2);color:var(--faint)}
+.pill-cd{background:oklch(from var(--warning) l c h / 0.15);color:var(--warning)}
+.pill-dur{background:oklch(from var(--primary) l c h / 0.15);color:var(--primary)}
+.rule-body{padding:16px;display:none}
+.rule-body.open{display:block}
+.field-row{display:flex;gap:16px;margin-bottom:12px;align-items:center;flex-wrap:wrap}
+label{color:var(--muted);font-size:12px;font-weight:500;min-width:110px}
+input[type="number"],input[type="text"],select{
+  background:var(--bg);border:1px solid var(--border);color:var(--text);
+  border-radius:var(--radius);padding:6px 10px;font-size:13px;outline:none;min-width:100px}
+input:focus,select:focus{border-color:var(--primary)}
+.toggle{display:flex;align-items:center;gap:8px}
+.switch{position:relative;width:36px;height:20px;cursor:pointer}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;inset:0;background:var(--border);border-radius:99px;transition:var(--trans)}
+.slider::before{content:"";position:absolute;width:14px;height:14px;left:3px;bottom:3px;
+  background:var(--text);border-radius:50%;transition:var(--trans)}
+.switch input:checked + .slider{background:var(--primary)}
+.switch input:checked + .slider::before{transform:translateX(16px)}
+.actions-list{margin-top:8px}
+.action-item{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);
+  padding:10px 14px;margin-bottom:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.action-type{background:var(--surface2);border:1px solid var(--border);color:var(--text);
+  border-radius:var(--radius);padding:5px 8px;font-size:12px;font-weight:600;min-width:80px}
+.action-field{flex:1;min-width:150px}
+.add-action{display:flex;gap:8px;margin-top:8px}
+#toast{position:fixed;bottom:24px;right:24px;background:var(--success);color:#fff;
+  padding:10px 18px;border-radius:var(--radius);font-size:13px;font-weight:500;
+  opacity:0;transition:opacity .3s;pointer-events:none;z-index:100}
+#toast.show{opacity:1}
+.empty{text-align:center;padding:60px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+    </svg>
+    <h1>S.T.E.A.M Rule Editor</h1>
+    <span class="badge">LOGIC</span>
+  </div>
+  <div class="actions-bar">
+    <button class="btn-ghost btn-sm" onclick="addRule()">+ Règle</button>
+    <button class="btn-ghost btn-sm" onclick="reloadEngine()">↺ Reload Pi</button>
+    <button class="btn-primary" onclick="saveRules()">💾 Sauvegarder</button>
+  </div>
+</header>
+
+<main>
+  <div class="toolbar">
+    <input type="text" id="filter" placeholder="Filtrer les labels..." oninput="renderRules()">
+    <span id="stats" style="color:var(--muted);font-size:12px"></span>
+  </div>
+  <div id="rules-list" class="rules-grid"></div>
+</main>
+
+<div id="toast">✓ Sauvegardé</div>
+
+<script>
+const API = '';
+let rulesData = { rules: {}, default: { enabled: false, cooldown: 10, min_duration: 0, actions: [] } };
+let assets = { audio: [], img: [], video: [] };
+const ACTION_TYPES = ['audio','video','udp','http'];
+
+async function init() {
+  try {
+    const [r, a] = await Promise.all([
+      fetch(API + '/rules').then(r => r.json()),
+      fetch(API + '/assets').then(r => r.json()).catch(() => ({}))
+    ]);
+    rulesData = r;
+    assets = a;
+    renderRules();
+  } catch(e) {
+    document.getElementById('rules-list').innerHTML =
+      '<div class="empty">⚠ Impossible de joindre l\'API STYX<br><small>Vérifier que rule_api.py tourne sur le Pi</small></div>';
+  }
+}
+
+function getSubdirs(cat) {
+  const files = assets[cat] || [];
+  const dirs = new Set(files.map(f => f.split('/')[1] ? f.split('/')[0] : ''));
+  return ['', ...dirs].filter((v, i, a) => a.indexOf(v) === i);
+}
+
+function renderRules() {
+  const filter = document.getElementById('filter').value.toLowerCase();
+  const rules = rulesData.rules || {};
+  const labels = Object.keys(rules).filter(l => l.includes(filter));
+  const active = labels.filter(l => rules[l].enabled);
+  document.getElementById('stats').textContent = `${active.length} actives / ${labels.length} règles`;
+
+  const el = document.getElementById('rules-list');
+  el.innerHTML = labels.length === 0
+    ? '<div class="empty">Aucune règle. Cliquez "+ Règle" pour commencer.</div>'
+    : labels.map(label => renderCard(label, rules[label])).join('');
+}
+
+function renderCard(label, rule) {
+  const actions = (rule.actions || []).map((a, i) => renderAction(label, i, a)).join('');
+  return `
+  <div class="rule-card ${rule.enabled ? '' : 'disabled'}" id="card-${label}">
+    <div class="rule-header" onclick="toggleCard('${label}')">
+      <span class="label-name">🏷 ${label}</span>
+      <div class="rule-badges">
+        <span class="pill ${rule.enabled ? 'pill-enabled' : 'pill-disabled'}">${rule.enabled ? 'Actif' : 'Inactif'}</span>
+        <span class="pill pill-cd">⏱ ${rule.cooldown}s</span>
+        ${rule.min_duration > 0 ? `<span class="pill pill-dur">⏳ ${rule.min_duration}s</span>` : ''}
+        <span class="pill pill-cd">${(rule.actions||[]).length} action(s)</span>
+      </div>
+      <button class="btn-danger btn-sm" onclick="event.stopPropagation();deleteRule('${label}')">✕</button>
+    </div>
+    <div class="rule-body" id="body-${label}">
+      <div class="field-row">
+        <label>Activé</label>
+        <label class="switch toggle">
+          <input type="checkbox" ${rule.enabled ? 'checked' : ''} onchange="updateField('${label}','enabled',this.checked);renderRules()">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="field-row">
+        <label>Cooldown (s)</label>
+        <input type="number" min="0" max="300" step="1" value="${rule.cooldown}"
+          onchange="updateField('${label}','cooldown',+this.value)">
+        <label style="min-width:auto;margin-left:16px">Durée min (s)</label>
+        <input type="number" min="0" max="60" step="0.5" value="${rule.min_duration||0}"
+          onchange="updateField('${label}','min_duration',+this.value)">
+      </div>
+      <div style="color:var(--muted);font-size:12px;margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Actions</div>
+      <div class="actions-list" id="actions-${label}">${actions}</div>
+      <div class="add-action">
+        <select id="newtype-${label}">${ACTION_TYPES.map(t=>`<option>${t}</option>`).join('')}</select>
+        <button class="btn-ghost btn-sm" onclick="addAction('${label}')">+ Ajouter action</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderAction(label, idx, action) {
+  const extra = {
+    audio: `<input type="text" class="action-field" placeholder="subdir (vide = racine)"
+              value="${action.subdir||''}" onchange="updateAction('${label}',${idx},'subdir',this.value)">`,
+    video: `<input type="text" class="action-field" placeholder="subdir (vide = racine)"
+              value="${action.subdir||''}" onchange="updateAction('${label}',${idx},'subdir',this.value)">`,
+    udp:   `<input type="text" class="action-field" placeholder="Message UDP ex: STEAM_DETECT_X"
+              value="${action.message||''}" onchange="updateAction('${label}',${idx},'message',this.value)">`,
+    http:  `<input type="text" class="action-field" placeholder="http://192.168.1.x/..."
+              value="${action.url||''}" onchange="updateAction('${label}',${idx},'url',this.value)">`,
+  }[action.type] || '';
+  return `
+  <div class="action-item">
+    <span class="action-type">${action.type.toUpperCase()}</span>
+    ${extra}
+    <button class="btn-danger btn-sm" onclick="removeAction('${label}',${idx})">✕</button>
+  </div>`;
+}
+
+function toggleCard(label) {
+  const b = document.getElementById('body-' + label);
+  b.classList.toggle('open');
+}
+
+function updateField(label, key, val) {
+  rulesData.rules[label][key] = val;
+}
+
+function updateAction(label, idx, key, val) {
+  rulesData.rules[label].actions[idx][key] = val;
+}
+
+function addAction(label) {
+  const type = document.getElementById('newtype-' + label).value;
+  const defaults = { audio:{type:'audio',subdir:''}, video:{type:'video',subdir:''},
+    udp:{type:'udp',message:`STEAM_DETECT_${label.toUpperCase()}`}, http:{type:'http',url:''} };
+  rulesData.rules[label].actions = rulesData.rules[label].actions || [];
+  rulesData.rules[label].actions.push(defaults[type]);
+  renderRules();
+  setTimeout(() => document.getElementById('body-' + label)?.classList.add('open'), 10);
+}
+
+function removeAction(label, idx) {
+  rulesData.rules[label].actions.splice(idx, 1);
+  renderRules();
+  setTimeout(() => document.getElementById('body-' + label)?.classList.add('open'), 10);
+}
+
+function addRule() {
+  const label = prompt('Nom du label YOLO (ex: person, plate, car)');
+  if (!label) return;
+  const clean = label.toLowerCase().trim();
+  rulesData.rules[clean] = { enabled: true, cooldown: 5, min_duration: 0, actions: [] };
+  renderRules();
+  setTimeout(() => {
+    document.getElementById('body-' + clean)?.classList.add('open');
+    document.getElementById('card-' + clean)?.scrollIntoView({behavior:'smooth'});
+  }, 50);
+}
+
+function deleteRule(label) {
+  if (!confirm(`Supprimer la règle "${label}" ?`)) return;
+  delete rulesData.rules[label];
+  renderRules();
+}
+
+async function saveRules() {
+  try {
+    await fetch(API + '/rules', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(rulesData)
+    });
+    toast('✓ Sauvegardé et rechargé sur le Pi');
+  } catch(e) { toast('✗ Erreur : ' + e.message, true); }
+}
+
+async function reloadEngine() {
+  try {
+    await fetch(API + '/reload', { method: 'POST' });
+    toast('↺ RuleEngine rechargé');
+  } catch(e) { toast('✗ ' + e, true); }
+}
+
+function toast(msg, err=false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.background = err ? 'var(--error)' : 'var(--success)';
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+init();
+</script>
+</body>
+</html>
