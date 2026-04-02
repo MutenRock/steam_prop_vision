@@ -1,3 +1,9 @@
+# steam-prop-vision — dépendances STYX (Pi 5 Debian Trixie)
+# Venv créé avec --system-site-packages pour accès libcamera
+
+picamera2>=0.3.19
 opencv-python-headless>=4.8
-pillow>=10.0
-ultralytics>=8.2.0
+ultralytics>=8.0
+numpy>=1.26
+PyYAML>=6.0
+websockets>=12.0

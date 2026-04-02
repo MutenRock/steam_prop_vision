@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S.T.E.A.M Monitor</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #111;
+    color: #eee;
+    font-family: 'Courier New', monospace;
+    padding: 24px;
+    min-height: 100vh;
+  }
+  h1 { color: #0df; font-size: 1.4rem; margin-bottom: 20px; letter-spacing: 2px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 900px; }
+  .card {
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .card h2 { color: #0df; font-size: 0.85rem; text-transform: uppercase;
+             letter-spacing: 1px; margin-bottom: 12px; }
+  .status-row { display: flex; justify-content: space-between;
+                padding: 4px 0; border-bottom: 1px solid #222; font-size: 0.9rem; }
+  .status-row:last-child { border-bottom: none; }
+  .label { color: #888; }
+  .value { color: #fff; font-weight: bold; }
+  .value.ok    { color: #4caf50; }
+  .value.warn  { color: #ff9800; }
+  .value.error { color: #f44336; }
+  #log-list {
+    list-style: none;
+    max-height: 300px;
+    overflow-y: auto;
+    font-size: 0.82rem;
+  }
+  #log-list li {
+    padding: 3px 0;
+    border-bottom: 1px solid #222;
+    color: #ccc;
+  }
+  #log-list li .ts   { color: #555; margin-right: 8px; }
+  #log-list li .evt  { color: #0df; }
+  #log-list li .det  { color: #4caf50; }
+  #log-list li .udp  { color: #ff9800; }
+  #log-list li .err  { color: #f44336; }
+  .conn-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: bold;
+    margin-left: 12px;
+    vertical-align: middle;
+  }
+  .conn-badge.connected    { background: #1b5e20; color: #4caf50; }
+  .conn-badge.disconnected { background: #4e0000; color: #f44336; }
+  .conn-badge.connecting   { background: #3e2700; color: #ff9800; }
+  input, button {
+    background: #2a2a2a; color: #eee;
+    border: 1px solid #444; border-radius: 4px;
+    padding: 6px 10px; font-family: inherit;
+  }
+  button { cursor: pointer; }
+  button:hover { background: #3a3a3a; }
+  .full { grid-column: 1 / -1; }
+</style>
+</head>
+<body>
+
+<h1>
+  👁 S.T.E.A.M Vision Monitor
+  <span id="conn-badge" class="conn-badge disconnected">DISCONNECTED</span>
+</h1>
+
+<div class="grid">
+
+  <!-- Connexion -->
+  <div class="card">
+    <h2>Connexion WebSocket</h2>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <input id="ws-host" value="192.168.1.X" style="width:140px">
+      <input id="ws-port" value="8889" style="width:70px">
+      <button onclick="connect()">Connecter</button>
+      <button onclick="disconnect()">✕</button>
+    </div>
+    <div class="status-row">
+      <span class="label">Host</span>
+      <span class="value" id="info-host">—</span>
+    </div>
+    <div class="status-row">
+      <span class="label">Latence dernière msg</span>
+      <span class="value" id="info-latency">—</span>
+    </div>
+    <div class="status-row">
+      <span class="label">Messages reçus</span>
+      <span class="value" id="info-count">0</span>
+    </div>
+  </div>
+
+  <!-- État pipeline -->
+  <div class="card">
+    <h2>État Pipeline</h2>
+    <div class="status-row">
+      <span class="label">Status</span>
+      <span class="value ok" id="st-status">—</span>
+    </div>
+    <div class="status-row">
+      <span class="label">Dernière détection</span>
+      <span class="value det" id="st-label">—</span>
+    </div>
+    <div class="status-row">
+      <span class="label">Confiance</span>
+      <span class="value" id="st-conf">—</span>
+    </div>
+    <div class="status-row">
+      <span class="label">Dernier UDP envoyé</span>
+      <span class="value udp" id="st-udp">—</span>
+    </div>
+    <div class="status-row">
+      <span class="label">Audio</span>
+      <span class="value" id="st-audio">—</span>
+    </div>
+    <div class="status-row">
+      <span class="label">Heartbeat</span>
+      <span class="value ok" id="st-heart">—</span>
+    </div>
+  </div>
+
+  <!-- Log events -->
+  <div class="card full">
+    <h2>Log événements
+      <button onclick="clearLog()" style="float:right;font-size:0.75rem;padding:2px 8px">Vider</button>
+    </h2>
+    <ul id="log-list"></ul>
+  </div>
+
+</div>
+
+<script>
+let ws = null;
+let msgCount = 0;
+let lastMsgTime = null;
+
+function ts() {
+  return new Date().toLocaleTimeString('fr-FR', {hour12: false});
+}
+
+function addLog(cls, text) {
+  const li = document.createElement('li');
+  li.innerHTML = `<span class="ts">${ts()}</span><span class="${cls}">${text}</span>`;
+  const list = document.getElementById('log-list');
+  list.prepend(li);
+  // Garder 200 entrées max
+  while (list.children.length > 200) list.removeChild(list.lastChild);
+}
+
+function clearLog() {
+  document.getElementById('log-list').innerHTML = '';
+}
+
+function setBadge(state) {
+  const b = document.getElementById('conn-badge');
+  b.className = 'conn-badge ' + state;
+  b.textContent = state.toUpperCase();
+}
+
+function connect() {
+  if (ws) ws.close();
+  const host = document.getElementById('ws-host').value.trim();
+  const port = document.getElementById('ws-port').value.trim();
+  const url  = `ws://${host}:${port}`;
+
+  document.getElementById('info-host').textContent = url;
+  setBadge('connecting');
+  addLog('evt', `Connexion vers ${url}...`);
+
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    setBadge('connected');
+    addLog('evt', 'WebSocket connecté ✓');
+    document.getElementById('st-status').textContent = 'RUNNING';
+  };
+
+  ws.onmessage = (e) => {
+    msgCount++;
+    const now = performance.now();
+    if (lastMsgTime) {
+      document.getElementById('info-latency').textContent =
+        (now - lastMsgTime).toFixed(0) + ' ms';
+    }
+    lastMsgTime = now;
+    document.getElementById('info-count').textContent = msgCount;
+
+    try {
+      const data = JSON.parse(e.data);
+      handleMessage(data);
+    } catch {
+      addLog('evt', e.data);
+    }
+  };
+
+  ws.onclose = () => {
+    setBadge('disconnected');
+    addLog('err', 'WebSocket fermé');
+    document.getElementById('st-status').textContent = 'OFFLINE';
+  };
+
+  ws.onerror = () => {
+    setBadge('disconnected');
+    addLog('err', 'Erreur WebSocket');
+  };
+}
+
+function disconnect() {
+  if (ws) { ws.close(); ws = null; }
+}
+
+function handleMessage(data) {
+  // Format attendu du ws_bridge.py :
+  // { "type": "detect",    "label": "person", "conf": 0.72 }
+  // { "type": "udp_sent",  "msg": "STEAM_DETECT_PERSON", "ip": "..." }
+  // { "type": "audio",     "file": "detection.mp3" }
+  // { "type": "heartbeat", "msg": "STEAM_RUN_OK" }
+  // { "type": "udp_rx",    "msg": "RESET", "from": "192.168.1.x" }
+
+  switch (data.type) {
+    case 'detect':
+      document.getElementById('st-label').textContent = data.label;
+      document.getElementById('st-conf').textContent  = (data.conf * 100).toFixed(1) + '%';
+      addLog('det', `DETECT ${data.label}  conf=${(data.conf*100).toFixed(1)}%`);
+      break;
+    case 'udp_sent':
+      document.getElementById('st-udp').textContent = `${data.msg} → ${data.ip}`;
+      addLog('udp', `UDP→Loxone : ${data.msg}`);
+      break;
+    case 'audio':
+      document.getElementById('st-audio').textContent = `▶ ${data.file}`;
+      addLog('evt', `Audio : ${data.file}`);
+      break;
+    case 'heartbeat':
+      document.getElementById('st-heart').textContent = `${ts()} — ${data.msg}`;
+      break;
+    case 'udp_rx':
+      addLog('udp', `UDP←${data.from} : ${data.msg}`);
+      break;
+    default:
+      addLog('evt', JSON.stringify(data));
+  }
+}
+</script>
+</body>
+</html>
