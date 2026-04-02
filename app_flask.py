@@ -167,7 +167,12 @@ def index():
 </head><body>
 <h2>&#127909; steam_prop_vision</h2>
 <img src="/stream"><br>
-<div class="card" id="status">chargement...</div>
+<div class="card">
+  <b>FSM:</b> <span id="fsm">-</span> &nbsp;|&nbsp; <b>t:</b> <span id="time">-</span><br>
+  <b>Presence:</b> <span id="presence">-</span><br>
+  <b>Plaque:</b> <span id="plaque">-</span><br>
+  <b>Config:</b> <span id="config">-</span>
+</div>
 <div class="card" id="actions"><b>Action log:</b><br>(none)</div>
 <hr>
 <form onsubmit="loadConfig(event)">
@@ -175,18 +180,26 @@ def index():
   <button type="submit">Load</button>
 </form>
 <script>
+let prev = {};
 function refresh() {
   fetch('/api/status')
     .then(r => r.json())
     .then(s => {
-      document.getElementById('status').innerHTML =
-        '<b>FSM:</b> ' + s.fsm + ' &nbsp;|&nbsp; <b>t:</b> ' + s.t + 's<br>' +
-        '<b>Presence:</b> ' + s.presence + ' (' + s.presence_score + ')<br>' +
-        '<b>Plaque:</b> ' + (s.plaque || 'none') + ' (' + s.plaque_score + ')<br>' +
-        '<b>Config:</b> ' + (s.config_folder || '(none)');
-      document.getElementById('actions').innerHTML =
-        '<b>Action log:</b><br>' +
-        (s.action_log.length ? s.action_log.join('<br>') : '(none)');
+      if (s.fsm !== prev.fsm || s.t !== prev.t ||
+          s.presence !== prev.presence || s.plaque !== prev.plaque ||
+          s.presence_score !== prev.presence_score) {
+        document.getElementById('fsm').textContent      = s.fsm;
+        document.getElementById('time').textContent     = s.t + 's';
+        document.getElementById('presence').textContent = s.presence + ' (' + s.presence_score + ')';
+        document.getElementById('plaque').textContent   = (s.plaque || 'none') + ' (' + s.plaque_score + ')';
+        document.getElementById('config').textContent   = s.config_folder || '(none)';
+      }
+      if (JSON.stringify(s.action_log) !== JSON.stringify(prev.action_log)) {
+        document.getElementById('actions').innerHTML =
+          '<b>Action log:</b><br>' +
+          (s.action_log.length ? s.action_log.join('<br>') : '(none)');
+      }
+      prev = s;
     });
 }
 setInterval(refresh, 1000);
