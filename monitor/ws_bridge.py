@@ -1,15 +1,13 @@
 """
 monitor/ws_bridge.py
 Serveur WebSocket leger (port 8889).
-Lance via start_in_thread() depuis apps/rpi/main.py.
-Ouvrir monitor/index.html dans le navigateur Salomon.
+Fix: _clients utilise set() global + difference_update() pour eviter UnboundLocalError
 """
 from __future__ import annotations
 import asyncio
 import json
 import threading
 import queue
-from typing import Set
 
 try:
     import websockets
@@ -19,7 +17,7 @@ except ImportError:
     print("[ws] WARN: websockets non installe -> pip install websockets")
 
 _event_queue: queue.Queue = queue.Queue()
-_clients: Set = set()
+_clients: set = set()
 _PORT = 8889
 
 
@@ -30,6 +28,7 @@ def push_event(event: dict) -> None:
 
 
 async def _handler(websocket):
+    global _clients
     _clients.add(websocket)
     try:
         await websocket.wait_closed()
@@ -38,6 +37,7 @@ async def _handler(websocket):
 
 
 async def _broadcaster():
+    global _clients
     while True:
         await asyncio.sleep(0.05)
         msgs = []
@@ -54,7 +54,7 @@ async def _broadcaster():
                         await client.send(json.dumps(m))
                 except Exception:
                     dead.add(client)
-            _clients -= dead
+            _clients.difference_update(dead)
 
 
 async def _serve():

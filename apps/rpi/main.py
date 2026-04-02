@@ -1,15 +1,6 @@
 """
 apps/rpi/main.py
-Point d'entree principal S.T.E.A.M sur STYX (Pi 5 headless).
-
-Pipeline :
-  Picamera2 1280x720 -> YOLO yolov8n.pt imgsz=320
-  -> confirmation 3 frames
-  -> Audio MP3 aleatoire + UDP Loxone + WS Monitor
-
-Usage :
-  bash scripts/linux_run.sh --loxone 192.168.1.50
-  bash scripts/linux_run.sh --loxone 192.168.1.50 --audio-subdir ambiance
+Fix: UDP label espaces -> underscores (TEDDY_BEAR vs TEDDY BEAR)
 """
 from __future__ import annotations
 import argparse
@@ -66,7 +57,6 @@ def main():
     print(f"  {assets.summary()}")
     print()
 
-    # Services de fond
     if not args.no_monitor:
         start_ws()
         push_event({"type": "status", "msg": "Pipeline demarrage..."})
@@ -76,7 +66,6 @@ def main():
 
     UDPListener(on_message=on_udp_received).start()
 
-    # Hardware
     cam      = Camera(resolution=(1280, 720))
     detector = YOLODetector(
         model_path=args.model,
@@ -125,19 +114,17 @@ def main():
 
             print(f"[DETECT] v {label}  conf={conf:.3f}")
 
-            # WS Monitor
             if not args.no_monitor:
                 push_event({"type": "detect", "label": label, "conf": conf})
 
-            # Audio aleatoire
             if not args.no_audio:
-                played = audio.play_random(args.audio_subdir)
-                if played and not args.no_monitor:
-                    push_event({"type": "audio", "file": str(audio.assets_dir)})
+                audio.play_random(args.audio_subdir)
+                if not args.no_monitor:
+                    push_event({"type": "audio", "file": f"random from assets/audio/{args.audio_subdir}"})
 
-            # UDP Loxone
             if not args.no_udp:
-                msg = f"STEAM_DETECT_{label.upper()}"
+                # Fix: remplacer les espaces par des underscores dans le label UDP
+                msg = f"STEAM_DETECT_{label.upper().replace(' ', '_')}"
                 send_event(msg, args.loxone, args.loxport)
                 if not args.no_monitor:
                     push_event({"type": "udp_sent", "msg": msg, "ip": args.loxone})
