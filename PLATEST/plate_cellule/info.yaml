@@ -1,0 +1,11 @@
+cooldown: 8
+created: '2026-04-04'
+description: Cellule avec barreaux et éclairs
+id: plate_cellule
+images_count: 2
+label: La Cellule
+notes: ''
+size_cm:
+- 10
+- 10
+trigger_action: STEAM_CARD_CELLULE
