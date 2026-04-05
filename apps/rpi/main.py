@@ -1,18 +1,18 @@
 """
-apps/rpi/main.py
-Pipeline S.T.E.A.M -- version PersonTracker
+apps/rpi/main.py -- pipeline pilote par config/features.yaml
 
-Nouveautes :
-  - PersonTracker gere presence / persistance / comptage / mouvement
-  - INSPECTION reste active PERSIST_AFTER_LOSS=5s apres disparition joueur
-  - Logs deplacement : gauche / droite / haut / bas / statique
-  - Comptage multi-joueurs affiche en continu
+Mode card_first (recommande) :
+  TOUJOURS scanner la carte -> si losange trouve + joueur present -> TRIGGER
+
+Mode legacy (card_first=false) :
+  Joueur present X secondes -> mode INSPECTION -> scanner carte
 """
 from __future__ import annotations
-import argparse, signal, time, socket, random, subprocess, threading
+import signal, time, socket, random, subprocess, threading
 from pathlib import Path
 from enum import Enum, auto
 
+import yaml
 from picamera2 import Picamera2
 
 from steamcore.detector                    import YOLODetector
@@ -25,17 +25,16 @@ from steamcore.recognition.card_detector   import CardDetector
 from steamcore.recognition.card_recognizer import CardRecognizer
 from monitor.ws_bridge                     import start_in_thread as start_ws, push_event
 
-DEFAULT_LOXONE_IP   = "192.168.1.50"
-DEFAULT_LOXONE_PORT = 7777
-DEFAULT_MODEL       = "yolov8n.pt"
-IMGSZ               = 320
-CONF_THRESHOLD      = 0.5
+CONFIG_FILE = "config/features.yaml"
 
-PERSON_DURATION     = 2.0   # secondes avant INSPECTION
-PERSIST_AFTER_LOSS  = 5.0   # secondes de persistance apres disparition joueur
-INSPECT_TIMEOUT     = 15.0  # timeout total INSPECTION (presence + persistance)
-CARD_COOLDOWN       = 8.0
-PERSON_GRACE        = 15    # frames de grace avant declenchement persistance
+
+def load_config():
+    p = Path(CONFIG_FILE)
+    if not p.exists():
+        print("[config] features.yaml introuvable, valeurs par defaut")
+        return {}
+    with open(p, encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
 
 
 class State(Enum):
@@ -44,63 +43,82 @@ class State(Enum):
     TRIGGERED  = auto()
 
 
-def parse_args():
-    p = argparse.ArgumentParser()
-    p.add_argument("--loxone",     default=DEFAULT_LOXONE_IP)
-    p.add_argument("--loxport",    default=DEFAULT_LOXONE_PORT, type=int)
-    p.add_argument("--model",      default=DEFAULT_MODEL)
-    p.add_argument("--rules",      default="config/rules.yaml")
-    p.add_argument("--platest",    default="PLATEST")
-    p.add_argument("--no-monitor", action="store_true")
-    p.add_argument("--no-heart",   action="store_true")
-    return p.parse_args()
+def udp_send(msg, ip, port):
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.sendto(msg.encode(), (ip, port))
+        print("[udp] -> " + ip + ":" + str(port) + " " + msg)
+    except Exception as e:
+        print("[udp] ERREUR : " + str(e))
 
 
-def run_actions(rule_engine, card_result, audio, video, loxone_ip, loxport):
-    actions = rule_engine.get_actions(card_result.card_id)
+def play_audio(audio):
+    threading.Thread(target=audio.play_random, daemon=True).start()
+
+
+def play_video(video):
+    threading.Thread(target=video.play_random, daemon=True).start()
+
+
+def run_actions(cfg, rule_engine, card_result, audio, video):
+    lox_ip   = cfg.get("loxone_ip",   "192.168.1.50")
+    lox_port = cfg.get("loxone_port", 7777)
+    actions  = rule_engine.get_actions(card_result.card_id)
     if not actions:
-        send_event(card_result.action, loxone_ip, loxport)
+        udp_send(card_result.action, lox_ip, lox_port)
         push_event({"type": "udp_sent", "msg": card_result.action})
         return
     for action in actions:
-        if action.type == "audio":
+        if action.type == "audio" and cfg.get("enable_audio", True):
             audio.play_random(action.subdir)
             push_event({"type": "audio", "card": card_result.card_id})
-        elif action.type == "video":
+        elif action.type == "video" and cfg.get("enable_video", True):
             threading.Thread(target=video.play_random,
                              args=(action.subdir,), daemon=True).start()
             push_event({"type": "video", "card": card_result.card_id})
         elif action.type == "udp":
             msg = action.message or card_result.action
-            send_event(msg, loxone_ip, loxport)
+            udp_send(msg, lox_ip, lox_port)
             push_event({"type": "udp_sent", "msg": msg})
 
 
 def main():
-    args          = parse_args()
-    rule_engine   = RuleEngine(args.rules)
-    recognizer    = CardRecognizer(args.platest)
-    card_detector = CardDetector()
-    assets        = __import__("steamcore.assets", fromlist=["AssetLibrary"]).AssetLibrary("assets")
+    cfg = load_config()
+
+    lox_ip   = cfg.get("loxone_ip",         "192.168.1.50")
+    lox_port = cfg.get("loxone_port",        7777)
+    card_first      = cfg.get("card_first",         True)
+    require_person  = cfg.get("require_person",     True)
+    person_duration = cfg.get("person_duration",    2.0)
+    persist         = cfg.get("persist_after_loss", 5.0)
+    inspect_timeout = cfg.get("inspect_timeout",    15.0)
+    card_cooldown   = cfg.get("card_cooldown",      8.0)
+    mov_tracking    = cfg.get("enable_movement_tracking", True)
+    count_log       = cfg.get("enable_person_count",      True)
+    heartbeat_on    = cfg.get("enable_heartbeat",         True)
+    monitor_on      = cfg.get("enable_monitor",           True)
+    audio_on        = cfg.get("enable_audio",             True)
 
     print("=" * 55)
-    print("  S.T.E.A.M Vision - STYX  |  Pi 5 headless")
+    print("  S.T.E.A.M Vision - STYX  |  Pi 5")
     print("=" * 55)
-    print("  Loxone   : " + args.loxone + ":" + str(args.loxport))
-    print("  Person   : stable " + str(PERSON_DURATION) + "s -> inspection")
-    print("  Persist  : " + str(PERSIST_AFTER_LOSS) + "s apres disparition")
-    print("  Inspect  : timeout " + str(INSPECT_TIMEOUT) + "s")
-    print("  Cooldown : " + str(CARD_COOLDOWN) + "s apres detection")
-    print("  " + assets.summary())
-    print("  " + rule_engine.summary())
-    print("  " + recognizer.summary())
+    print("  Mode       : " + ("card_first" if card_first else "legacy (person_first)"))
+    print("  Personne   : " + ("requise" if require_person else "optionnelle"))
+    print("  Persist    : " + str(persist) + "s")
+    print("  Cooldown   : " + str(card_cooldown) + "s")
+    print("  Monitor    : " + ("ON" if monitor_on else "OFF"))
     print()
 
-    if not args.no_monitor:
-        start_ws()
-        push_event({"type": "status", "msg": "Pipeline demarre"})
+    rule_engine   = RuleEngine("config/rules.yaml")
+    recognizer    = CardRecognizer("PLATEST",
+                                   min_matches=cfg.get("card_min_matches", 12),
+                                   threshold=cfg.get("card_score_threshold", 0.08))
+    card_detector = CardDetector(min_area=cfg.get("card_min_area", 1500))
 
-    if not args.no_heart:
+    if monitor_on:
+        start_ws()
+
+    if heartbeat_on:
         HeartbeatThread(interval=5.0).start()
 
     UDPListener(on_message=lambda msg, addr: (
@@ -110,16 +128,22 @@ def main():
 
     cam = Picamera2()
     cam.configure(cam.create_preview_configuration(
-        main={"format": "RGB888", "size": (1280, 720)}
+        main={"format": "RGB888",
+              "size": (cfg.get("camera_width",  1280),
+                       cfg.get("camera_height", 720))}
     ))
     cam.start()
     print("[init] Camera OK")
 
-    detector = YOLODetector(model_path=args.model, imgsz=IMGSZ, conf=CONF_THRESHOLD)
-    tracker  = PersonTracker(
-        person_duration   = PERSON_DURATION,
-        persist_after_loss = PERSIST_AFTER_LOSS,
-        grace_frames      = PERSON_GRACE,
+    detector = YOLODetector(
+        model_path = cfg.get("yolo_model", "yolov8n.pt"),
+        imgsz      = cfg.get("yolo_imgsz", 320),
+        conf       = cfg.get("yolo_conf",  0.5),
+    )
+    tracker = PersonTracker(
+        person_duration    = person_duration,
+        persist_after_loss = persist,
+        grace_frames       = 15,
     )
     audio = AudioPlayer("assets/audio")
     video = VideoPlayer("assets/video")
@@ -127,19 +151,19 @@ def main():
     running = True
     def _stop(s, f):
         nonlocal running
-        print("[stop] Arret propre...")
         running = False
-    signal.signal(signal.SIGINT, _stop)
+        print("[stop] Arret propre...")
+    signal.signal(signal.SIGINT,  _stop)
     signal.signal(signal.SIGTERM, _stop)
 
     state          = State.IDLE
     inspect_start  = 0.0
     last_triggered = 0.0
+    last_count     = 0.0
+    last_move      = 0.0
     frame_count    = 0
-    last_move_log  = 0.0
-    last_count_log = 0.0
 
-    print("[run] Pipeline demarre - etat : IDLE")
+    print("[run] Pipeline demarre - IDLE")
     print()
 
     while running:
@@ -151,90 +175,106 @@ def main():
         frame_count += 1
         now = time.time()
 
-        # ── TRIGGERED : attendre cooldown ────────────────────
+        # ── Cooldown apres trigger ────────────────────────────
         if state == State.TRIGGERED:
-            if now - last_triggered >= CARD_COOLDOWN:
+            if now - last_triggered >= card_cooldown:
                 state = State.IDLE
                 tracker.reset()
                 print("[state] -> IDLE")
                 push_event({"type": "state", "state": "IDLE"})
             continue
 
-        # ── Detection personnes ──────────────────────────────
-        person_frame = detector.detect_persons(frame)
-        ts           = tracker.update(person_frame)
+        # ── Detection personnes (toujours) ───────────────────
+        pf = detector.detect_persons(frame)
+        ts = tracker.update(pf)
 
-        # Log comptage toutes les 3s (mode parallele)
-        if now - last_count_log > 3.0 and person_frame.count > 0:
-            print("[count] " + str(person_frame.count) + " personne(s) dans le champ")
-            push_event({"type": "count", "value": person_frame.count})
-            last_count_log = now
+        if count_log and now - last_count > 3.0 and pf.count > 0:
+            print("[count] " + str(pf.count) + " personne(s)")
+            push_event({"type": "count", "value": pf.count})
+            last_count = now
 
-        # Log mouvement toutes les 1s en INSPECTION
-        if state == State.INSPECTION and now - last_move_log > 1.0:
+        if mov_tracking and state == State.INSPECTION and now - last_move > 1.0:
             mv = ts.movement
             if mv.speed > 3:
-                print("[move] " + mv.direction + " dx=" + str(round(mv.dx, 1)) + " dy=" + str(round(mv.dy, 1)) + " speed=" + str(round(mv.speed, 1)))
+                print("[move] " + mv.direction + " speed=" + str(round(mv.speed, 1)))
                 push_event({"type": "movement", "direction": mv.direction,
-                            "dx": round(mv.dx, 1), "dy": round(mv.dy, 1),
                             "speed": round(mv.speed, 1)})
-            last_move_log = now
+            last_move = now
 
-        # ── IDLE -> INSPECTION ───────────────────────────────
-        if state == State.IDLE:
-            if ts.ready_for_inspect:
-                state         = State.INSPECTION
-                inspect_start = now
-                print("[state] -> INSPECTION")
-                push_event({"type": "state", "state": "INSPECTION"})
-                audio.play_random()
-            continue
-
-        # ── INSPECTION ───────────────────────────────────────
-        if state == State.INSPECTION:
-
-            # Timeout global
-            if now - inspect_start > INSPECT_TIMEOUT:
-                state = State.IDLE
-                tracker.reset()
-                print("[state] INSPECTION timeout -> IDLE")
-                push_event({"type": "state", "state": "IDLE", "reason": "timeout"})
-                continue
-
-            # Joueur totalement absent + persistance expiree
-            if ts.person_state == PersonState.ABSENT:
-                state = State.IDLE
-                tracker.reset()
-                print("[state] INSPECTION -> IDLE (joueur absent)")
-                push_event({"type": "state", "state": "IDLE", "reason": "absent"})
-                continue
-
-            # Si joueur en persistance : log restant
-            if ts.person_state == PersonState.PERSISTING:
-                pass  # on continue la detection, le tracker gere le timeout
-
-            # Detection carte
+        # ════════════════════════════════════════════════════
+        # MODE CARD_FIRST (recommande)
+        # Scan carte en continu, personne = validation
+        # ════════════════════════════════════════════════════
+        if card_first:
             region = card_detector.detect(frame)
             if region is None:
+                continue
+
+            # Valider presence joueur si requis
+            if require_person and pf.count == 0:
                 continue
 
             result = recognizer.recognize(region.warped)
             if result is None:
                 continue
 
-            print("[CARD] ok " + result.label + "  score=" + str(round(result.score, 3)) + "  matches=" + str(result.matches))
+            print("[CARD] ok " + result.label + " score=" + str(round(result.score, 3)))
             push_event({"type": "card_detected", "card_id": result.card_id,
                         "label": result.label, "score": result.score})
-            run_actions(rule_engine, result, audio, video, args.loxone, args.loxport)
+            run_actions(cfg, rule_engine, result, audio, video)
+            if audio_on:
+                play_audio(audio)
             state          = State.TRIGGERED
             last_triggered = now
-            print("[state] -> TRIGGERED (" + str(CARD_COOLDOWN) + "s cooldown)")
+            print("[state] -> TRIGGERED (" + str(card_cooldown) + "s)")
+            push_event({"type": "state", "state": "TRIGGERED"})
+            continue
+
+        # ════════════════════════════════════════════════════
+        # MODE LEGACY (person_first)
+        # ════════════════════════════════════════════════════
+        if state == State.IDLE:
+            if ts.ready_for_inspect:
+                state         = State.INSPECTION
+                inspect_start = now
+                print("[state] -> INSPECTION")
+                push_event({"type": "state", "state": "INSPECTION"})
+                if audio_on:
+                    play_audio(audio)
+            continue
+
+        if state == State.INSPECTION:
+            if now - inspect_start > inspect_timeout:
+                state = State.IDLE
+                tracker.reset()
+                print("[state] INSPECTION timeout -> IDLE")
+                continue
+            if ts.person_state == PersonState.ABSENT:
+                state = State.IDLE
+                tracker.reset()
+                print("[state] INSPECTION -> IDLE (absent)")
+                continue
+
+            region = card_detector.detect(frame)
+            if region is None:
+                continue
+            result = recognizer.recognize(region.warped)
+            if result is None:
+                continue
+
+            print("[CARD] ok " + result.label + " score=" + str(round(result.score, 3)))
+            push_event({"type": "card_detected", "card_id": result.card_id,
+                        "label": result.label, "score": result.score})
+            run_actions(cfg, rule_engine, result, audio, video)
+            state          = State.TRIGGERED
+            last_triggered = now
+            print("[state] -> TRIGGERED (" + str(card_cooldown) + "s)")
             push_event({"type": "state", "state": "TRIGGERED"})
 
     cam.stop()
     audio.stop()
     video.stop()
-    print("[stop] Pipeline arrete apres " + str(frame_count) + " frames.")
+    print("[stop] " + str(frame_count) + " frames traitees.")
 
 
 if __name__ == "__main__":
