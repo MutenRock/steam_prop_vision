@@ -1,21 +1,13 @@
 """
 steamcore/recognition/card_recognizer.py
-v2 -- Recognizer adapte au nouveau CardDetector SIFT.
-
-Le CardDetector v2 fait deja le matching SIFT par template.
-Le Recognizer prend le warped 400x400 et fait un second passage ORB
-pour confirmer l'identite de la carte (double validation).
-
-API :
-    recognizer = CardRecognizer("PLATEST")
-    result     = recognizer.recognize(warped_bgr, hint_id=None)
-    # hint_id : si CardDetector a deja une hypothese, on confirme juste ca
+v2 -- Confirmation ORB sur le warp 400x400.
 """
 from __future__ import annotations
+from pathlib import Path
+from dataclasses import dataclass
+
 import cv2
 import numpy as np
-from dataclasses import dataclass
-from pathlib import Path
 
 
 @dataclass
@@ -32,9 +24,9 @@ class CardRecognizer:
 
     def __init__(
         self,
-        platest_dir:  str   = "PLATEST",
-        min_matches:  int   = 8,
-        threshold:    float = 0.04,   # score minimum ORB
+        platest_dir: str  = "PLATEST",
+        min_matches: int  = 8,
+        threshold:   float = 0.04,
     ):
         self.platest_dir = platest_dir
         self.min_matches = min_matches
@@ -44,40 +36,22 @@ class CardRecognizer:
         self._templates: list[_OrbTemplate] = []
         self._load()
 
-    # ── API publique ──────────────────────────────────────────
-    def recognize(
-        self,
-        warped: np.ndarray,
-        hint_id: str | None = None,
-    ) -> RecognitionResult | None:
-        """
-        hint_id : si le CardDetector SIFT a deja identifie la carte,
-                  on ne fait que confirmer ce choix (plus rapide).
-        """
+    def recognize(self, warped: np.ndarray, hint_id: str | None = None):
         gray = self._to_gray(warped)
         gray = cv2.resize(gray, (self.WARP_SIZE, self.WARP_SIZE))
         kps_q, desc_q = self._orb.detectAndCompute(gray, None)
         if desc_q is None:
             return None
-
         templates = self._templates
         if hint_id:
             templates = [t for t in self._templates if t.card_id == hint_id]                         or self._templates
-
-        best_score   = 0.0
-        best_matches = 0
-        best_id      = None
-
+        best_score, best_matches, best_id = 0.0, 0, None
         for tmpl in templates:
             score, matches = self._score(kps_q, desc_q, tmpl)
             if score > best_score:
-                best_score   = score
-                best_matches = matches
-                best_id      = tmpl.card_id
-
+                best_score, best_matches, best_id = score, matches, tmpl.card_id
         if best_id is None or best_score < self.threshold                 or best_matches < self.min_matches:
             return None
-
         label = best_id.replace("plate_","").replace("_"," ").capitalize()
         return RecognitionResult(card_id=best_id, label=label,
                                  score=best_score, matches=best_matches)
@@ -87,7 +61,6 @@ class CardRecognizer:
         self._load()
         print("[recognizer] " + str(len(self._templates)) + " cartes rechargees")
 
-    # ── Interne ───────────────────────────────────────────────
     def _load(self):
         p = Path(self.platest_dir)
         if not p.exists():
@@ -106,7 +79,7 @@ class CardRecognizer:
                       " (" + str(len(tmpl.descs)) + " imgs)")
         print("[recognizer] " + str(len(self._templates)) + " cartes chargees")
 
-    def _score(self, kps_q, desc_q, tmpl: "_OrbTemplate"):
+    def _score(self, kps_q, desc_q, tmpl):
         top_score, top_matches = 0.0, 0
         for kps_r, desc_r in tmpl.descs:
             try:
@@ -135,8 +108,7 @@ class _OrbTemplate:
             if img is None:
                 continue
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            gray = cv2.resize(gray, (CardRecognizer.WARP_SIZE,
-                                     CardRecognizer.WARP_SIZE))
+            gray = cv2.resize(gray, (CardRecognizer.WARP_SIZE, CardRecognizer.WARP_SIZE))
             kps, desc = orb.detectAndCompute(gray, None)
             if desc is not None and len(kps) >= 6:
                 self.descs.append((kps, desc))
