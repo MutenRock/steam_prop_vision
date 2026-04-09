@@ -10,6 +10,14 @@ import numpy as np
 from dataclasses import dataclass
 
 
+def _find_images(directory: Path) -> list[Path]:
+    exts = ["*.jpg", "*.jpeg", "*.png", "*.JPG", "*.JPEG", "*.PNG", "*.webp"]
+    imgs = []
+    for ext in exts:
+        imgs.extend(directory.glob(ext))
+    return imgs
+
+
 @dataclass
 class CardRegion:
     warped:      np.ndarray
@@ -29,13 +37,12 @@ class CardDetector:
         min_matches: int  = 8,
         min_inliers: int  = 6,
         ratio_test: float = 0.75,
-        min_area: int     = 0,   # compat ancienne API, ignore
+        min_area: int     = 0,
     ):
         self.platest_dir = platest_dir
         self.min_matches = min_matches
         self.min_inliers = min_inliers
         self.ratio_test  = ratio_test
-
         self._sift    = cv2.SIFT_create(nfeatures=1000)
         self._matcher = cv2.BFMatcher(cv2.NORM_L2)
         self._templates: list[_Template] = []
@@ -77,7 +84,7 @@ class CardDetector:
         for subdir in sorted(p.iterdir()):
             if not subdir.is_dir():
                 continue
-            imgs = list(subdir.glob("*.jpg")) + list(subdir.glob("*.png"))
+            imgs = _find_images(subdir)
             if not imgs:
                 continue
             tmpl = _Template(subdir.name, imgs, self._sift)
@@ -85,6 +92,7 @@ class CardDetector:
                 self._templates.append(tmpl)
                 print("[detector] loaded " + subdir.name +
                       " (" + str(len(tmpl.descs)) + " imgs)")
+        print("[detector] " + str(len(self._templates)) + " templates charges")
 
     def _match_template(self, tmpl, kps_f, desc_f, frame):
         best_inliers = 0
@@ -117,11 +125,7 @@ class CardDetector:
         corners_f = cv2.perspectiveTransform(corners_t, best_H).reshape(-1,2)
         if not self._is_valid_quad(corners_f, frame.shape):
             return None
-        dst = np.float32([
-            [0,                self.WARP_SIZE-1,    self.WARP_SIZE-1, 0],
-            [0,                0,                   self.WARP_SIZE-1, self.WARP_SIZE-1],
-        ]).T
-        M      = cv2.getPerspectiveTransform(
+        M = cv2.getPerspectiveTransform(
             corners_f.astype(np.float32),
             np.float32([[0,0],[self.WARP_SIZE-1,0],
                         [self.WARP_SIZE-1,self.WARP_SIZE-1],[0,self.WARP_SIZE-1]])

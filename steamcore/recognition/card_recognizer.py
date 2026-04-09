@@ -1,6 +1,6 @@
 """
 steamcore/recognition/card_recognizer.py
-v2 -- Confirmation ORB sur le warp 400x400.
+v2 -- Confirmation ORB sur warp 400x400.
 """
 from __future__ import annotations
 from pathlib import Path
@@ -8,6 +8,14 @@ from dataclasses import dataclass
 
 import cv2
 import numpy as np
+
+
+def _find_images(directory: Path) -> list[Path]:
+    exts = ["*.jpg", "*.jpeg", "*.png", "*.JPG", "*.JPEG", "*.PNG", "*.webp"]
+    imgs = []
+    for ext in exts:
+        imgs.extend(directory.glob(ext))
+    return imgs
 
 
 @dataclass
@@ -24,8 +32,8 @@ class CardRecognizer:
 
     def __init__(
         self,
-        platest_dir: str  = "PLATEST",
-        min_matches: int  = 8,
+        platest_dir: str   = "PLATEST",
+        min_matches: int   = 8,
         threshold:   float = 0.04,
     ):
         self.platest_dir = platest_dir
@@ -69,7 +77,7 @@ class CardRecognizer:
         for subdir in sorted(p.iterdir()):
             if not subdir.is_dir():
                 continue
-            imgs = list(subdir.glob("*.jpg")) + list(subdir.glob("*.png"))
+            imgs = _find_images(subdir)
             if not imgs:
                 continue
             tmpl = _OrbTemplate(subdir.name, imgs, self._orb)
