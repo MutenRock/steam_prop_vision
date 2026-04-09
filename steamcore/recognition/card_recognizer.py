@@ -1,16 +1,15 @@
 """
 steamcore/recognition/card_recognizer.py
-v2 -- Confirmation ORB sur warp 400x400.
+Confirmation ORB sur warp 400x400.
 """
 from __future__ import annotations
 from pathlib import Path
 from dataclasses import dataclass
-
 import cv2
 import numpy as np
 
 
-def _find_images(directory: Path) -> list[Path]:
+def _find_images(directory: Path) -> list:
     exts = ["*.jpg", "*.jpeg", "*.png", "*.JPG", "*.JPEG", "*.PNG", "*.webp"]
     imgs = []
     for ext in exts:
@@ -41,10 +40,14 @@ class CardRecognizer:
         self.threshold   = threshold
         self._orb        = cv2.ORB_create(nfeatures=800)
         self._matcher    = cv2.BFMatcher(cv2.NORM_HAMMING)
-        self._templates: list[_OrbTemplate] = []
+        self._templates: list = []
         self._load()
 
-    # ── public ──────────────────────────────────────────────
+    def load_config(self, cfg: dict):
+        cr = cfg.get("card_recognizer", {})
+        self.min_matches = cr.get("min_matches", self.min_matches)
+        self.threshold   = cr.get("threshold",   self.threshold)
+        self.reload()
 
     def recognize(self, warped: np.ndarray, hint_id: str | None = None):
         gray = self._to_gray(warped)
@@ -69,13 +72,10 @@ class CardRecognizer:
     def reload(self):
         self._templates.clear()
         self._load()
-        print("[recognizer] " + str(len(self._templates)) + " cartes rechargees")
 
     @property
-    def card_ids(self) -> list[str]:
-        return [t.card_id for t in self._templates]   # <-- .card_id partout
-
-    # ── private ─────────────────────────────────────────────
+    def card_ids(self) -> list:
+        return [t.card_id for t in self._templates]
 
     def _load(self):
         p = Path(self.platest_dir)
@@ -91,8 +91,6 @@ class CardRecognizer:
             tmpl = _OrbTemplate(subdir.name, imgs, self._orb)
             if tmpl.descs:
                 self._templates.append(tmpl)
-                print("[recognizer] + " + subdir.name +
-                      " (" + str(len(tmpl.descs)) + " imgs)")
         print("[recognizer] " + str(len(self._templates)) + " cartes chargees")
 
     def _score(self, kps_q, desc_q, tmpl):
@@ -100,7 +98,8 @@ class CardRecognizer:
         for kps_r, desc_r in tmpl.descs:
             try:
                 ms   = self._matcher.knnMatch(desc_q, desc_r, k=2)
-                good = [m for m, n in ms if m.distance < self.RATIO_TEST * n.distance]
+                good = [m for m, n in ms
+                        if m.distance < self.RATIO_TEST * n.distance]
                 s    = len(good) / max(len(kps_r), len(kps_q), 1)
                 if s > top_score:
                     top_score, top_matches = s, len(good)
@@ -110,15 +109,13 @@ class CardRecognizer:
 
     @staticmethod
     def _to_gray(img: np.ndarray) -> np.ndarray:
-        if len(img.shape) == 2:
-            return img
-        return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        return img if len(img.shape) == 2                else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
 
 class _OrbTemplate:
     def __init__(self, card_id: str, paths, orb):
-        self.card_id = card_id          # <-- .card_id partout, jamais .id
-        self.descs: list[tuple] = []
+        self.card_id = card_id
+        self.descs: list = []
         for p in paths:
             img = cv2.imread(str(p))
             if img is None:

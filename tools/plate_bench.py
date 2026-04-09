@@ -1,12 +1,11 @@
 """
-tools/plate_bench.py
-Bench interactif SIFT/ORB sur flux cam -- v3
-Compatible CardDetector v2 (min_matches, min_inliers) et CardRecognizer v2 (.card_id).
+tools/plate_bench.py  v4
+Bench interactif avec pipeline 2 niveaux + ROI dynamique.
 Usage:
-    python tools/plate_bench.py            # webcam locale index 0
+    python tools/plate_bench.py            # webcam locale
     python tools/plate_bench.py --pi       # Picamera2 (STYX)
-    python tools/plate_bench.py --src rtsp://...
-    python tools/plate_bench.py --src 1
+    python tools/plate_bench.py --backend sift
+    python tools/plate_bench.py --no-display  # headless, sauvegarde snapshots
 """
 from __future__ import annotations
 import sys, os, time, argparse
@@ -14,33 +13,29 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import cv2
 import numpy as np
-from steamcore.recognition.card_detector   import CardDetector
-from steamcore.recognition.card_recognizer import CardRecognizer
+from steamcore.recognition.pipeline import RecognitionPipeline
+from steamcore.recognition.fast_detector import FastDetector
 
-PLATEST_DIR  = os.path.join(os.path.dirname(__file__), "..", "PLATEST")
-WARP_SIZE    = 400
-WIN          = "plate_bench"
-FONT         = cv2.FONT_HERSHEY_SIMPLEX
+PLATEST_DIR = os.path.join(os.path.dirname(__file__), "..", "PLATEST")
+WIN         = "plate_bench"
+FONT        = cv2.FONT_HERSHEY_SIMPLEX
+SNAP_DIR    = "/tmp/bench_snaps"
 
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--src",  default="0",  help="Source: index ou URL RTSP")
-    p.add_argument("--pi",   action="store_true", help="Utiliser Picamera2")
-    p.add_argument("--platest", default=PLATEST_DIR, help="Dossier PLATEST")
-    p.add_argument("--min-matches",  type=int,   default=8)
-    p.add_argument("--min-inliers",  type=int,   default=6)
-    p.add_argument("--ratio",        type=float, default=0.75)
-    p.add_argument("--min-orb",      type=int,   default=8,
-                   help="min_matches pour CardRecognizer")
-    p.add_argument("--threshold",    type=float, default=0.04,
-                   help="Score threshold CardRecognizer")
+    p.add_argument("--src",        default="0")
+    p.add_argument("--pi",         action="store_true")
+    p.add_argument("--backend",    default="orb", choices=["orb", "sift"])
+    p.add_argument("--platest",    default=PLATEST_DIR)
+    p.add_argument("--no-display", action="store_true",
+                   help="Mode headless : sauvegarde snapshots dans /tmp/bench_snaps")
+    p.add_argument("--bg-interval", type=float, default=0.4)
+    p.add_argument("--result-ttl",  type=float, default=3.0)
     return p.parse_args()
 
 
-# ── Camera helpers ────────────────────────────────────────────────────────────
-
-def open_cv_cap(src_str: str):
+def open_cv_cap(src_str):
     src = int(src_str) if src_str.isdigit() else src_str
     cap = cv2.VideoCapture(src)
     if hasattr(cv2, "CAP_PROP_BUFFERSIZE"):
@@ -48,143 +43,116 @@ def open_cv_cap(src_str: str):
     return cap
 
 
-def open_picam(width=1280, height=720):
+def open_picam(w=1280, h=720):
     from picamera2 import Picamera2
     cam = Picamera2()
     cam.configure(cam.create_preview_configuration(
-        main={"size": (width, height), "format": "RGB888"}
+        main={"size": (w, h), "format": "RGB888"}
     ))
     cam.start()
-    time.sleep(2.0)   # AWB warmup
+    time.sleep(2.0)
     return cam
 
-
-def read_frame_cv(cap):
-    ok, frame = cap.read()
-    return frame if ok else None
-
-
-def read_frame_pi(cam):
-    rgb = cam.capture_array()
-    return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-
-
-# ── Overlay helpers ───────────────────────────────────────────────────────────
 
 def put(img, text, pos, color=(0, 255, 255), scale=0.55, thick=2):
     cv2.putText(img, text, pos, FONT, scale, (0, 0, 0), thick + 2)
     cv2.putText(img, text, pos, FONT, scale, color, thick)
 
 
-def draw_quad(img, corners, color=(0, 255, 0)):
-    pts = corners.astype(int)
-    for i in range(4):
-        cv2.line(img, tuple(pts[i]), tuple(pts[(i+1) % 4]), color, 2)
-
-
-# ── Main ──────────────────────────────────────────────────────────────────────
-
 def main():
     args = parse_args()
+    os.makedirs(SNAP_DIR, exist_ok=True)
 
-    detector   = CardDetector(
+    pipe = RecognitionPipeline(
         platest_dir=args.platest,
-        min_matches=args.min_matches,
-        min_inliers=args.min_inliers,
-        ratio_test=args.ratio,
+        backend=args.backend,
+        bg_interval=args.bg_interval,
+        result_ttl=args.result_ttl,
     )
-    recognizer = CardRecognizer(
-        platest_dir=args.platest,
-        min_matches=args.min_orb,
-        threshold=args.threshold,
-    )
-
-    print("[bench] cards charges :", detector.card_ids)
+    pipe.start()
+    print("[bench] cards : " + str(pipe.card_ids))
+    print("[bench] backend=" + args.backend +
+          "  headless=" + str(args.no_display))
 
     if args.pi:
-        print("[bench] mode Picamera2")
-        cam     = open_picam()
-        read_fn = lambda: read_frame_pi(cam)
+        cam      = open_picam()
+        read_fn  = lambda: cv2.cvtColor(cam.capture_array(), cv2.COLOR_RGB2BGR)
         close_fn = cam.stop
     else:
-        src = args.src
-        print("[bench] mode cv2.VideoCapture src=" + str(src))
-        cap     = open_cv_cap(src)
-        read_fn = lambda: read_frame_cv(cap)
+        cap      = open_cv_cap(args.src)
+        read_fn  = lambda: (lambda ok, f: f if ok else None)(*cap.read())
         close_fn = cap.release
 
-    paused      = False
-    show_warp   = False
-    last_result = None
-    last_region = None
-    fps_t       = time.time()
-    fps_val     = 0.0
+    fps_t    = time.time()
+    fps_val  = 0.0
+    snap_n   = 0
+    paused   = False
+    last_quad = None
 
-    print("[bench] Commandes : [SPACE] pause  [W] toggle warp  [Q] quitter")
+    print("[bench] [SPACE]=pause  [W]=warp  [R]=reload  [Q]=quitter")
 
     while True:
         if not paused:
             frame = read_fn()
             if frame is None:
-                print("[bench] frame None, fin.")
+                print("[bench] fin du flux")
                 break
 
-            t0     = time.time()
-            region = detector.detect(frame)
-            dt_det = time.time() - t0
+            t0   = time.time()
+            quad = pipe._fast.detect(frame)
+            if quad is not None:
+                last_quad = quad
+            result = pipe.process_frame(frame)
+            dt   = time.time() - t0
 
-            result = None
-            if region is not None:
-                hint = None
-                result = recognizer.recognize(region.warped, hint_id=hint)
-                last_region = region
-                last_result = result
-                draw_quad(frame, region.corners)
+            now     = time.time()
+            fps_val = 0.9 * fps_val + 0.1 / max(now - fps_t, 1e-5)
+            fps_t   = now
 
-            # FPS
-            now   = time.time()
-            fps_val = 0.9 * fps_val + 0.1 * (1.0 / max(now - fps_t, 1e-5))
-            fps_t = now
+            out = pipe.draw_overlay(frame, quad)
 
             # OSD
-            put(frame, "FPS: " + str(round(fps_val, 1)), (10, 24))
-            put(frame, "det: " + str(round(dt_det * 1000)) + "ms", (10, 48))
-
-            if region:
-                put(frame, "matches: " + str(region.match_count), (10, 72), (0, 255, 0))
-                if result:
-                    lbl = result.card_id + "  " + str(round(result.score, 3))                           + "  (" + str(result.matches) + "m)"
-                    put(frame, lbl, (10, 96), (0, 200, 255))
-                else:
-                    put(frame, "recognition: none", (10, 96), (0, 140, 255))
+            put(out, "FPS " + str(round(fps_val, 1)) +
+                "  L1 " + str(round(dt * 1000)) + "ms", (10, 24))
+            put(out, "backend=" + args.backend, (10, 48))
+            if quad:
+                put(out, "quad conf=" + str(round(quad.confidence, 2)) +
+                    "  ROI " + str(quad.w) + "x" + str(quad.h),
+                    (10, 72), (0, 255, 100))
             else:
-                put(frame, "no card detected", (10, 72), (0, 100, 255))
+                put(out, "no quad", (10, 72), (0, 100, 255))
+            if result:
+                put(out, "CONFIRMED: " + result.card_id +
+                    "  " + str(round(result.score, 3)),
+                    (10, 96), (0, 200, 255))
 
-        # Affichage
-        if show_warp and last_region is not None:
-            disp = cv2.resize(last_region.warped, (WARP_SIZE, WARP_SIZE))
-            if last_result:
-                put(disp, last_result.card_id, (10, 30), (0, 255, 100))
-            cv2.imshow(WIN, disp)
-        else:
-            cv2.imshow(WIN, frame)
+            if args.no_display:
+                if result:
+                    snap_path = os.path.join(
+                        SNAP_DIR, "snap_" + str(snap_n) + "_" +
+                        result.card_id + ".jpg")
+                    cv2.imwrite(snap_path, out)
+                    print("[bench] snap -> " + snap_path)
+                    snap_n += 1
+                time.sleep(0.05)
+                continue
 
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord("q"):
-            break
-        elif key == ord(" "):
-            paused = not paused
-            print("[bench] " + ("pause" if paused else "resume"))
-        elif key == ord("w"):
-            show_warp = not show_warp
-            print("[bench] warp=" + str(show_warp))
-        elif key == ord("r"):
-            detector.reload()
-            recognizer.reload()
-            print("[bench] rechargement templates")
+        if not args.no_display:
+            cv2.imshow(WIN, out)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
+                break
+            elif key == ord(" "):
+                paused = not paused
+                print("[bench] " + ("pause" if paused else "resume"))
+            elif key == ord("r"):
+                pipe.reload()
+                print("[bench] templates rechargees")
 
+    pipe.stop()
     close_fn()
-    cv2.destroyAllWindows()
+    if not args.no_display:
+        cv2.destroyAllWindows()
     print("[bench] bye")
 
 
