@@ -1,0 +1,11 @@
+# Dans la boucle principale de plate_bench.py, apres le bloc key == ESPACE :
+# Ajouter ce bloc pour la touche A :
+
+elif key == ord("a") and region is not None:
+    dest = Path(PLATEST_DIR) / expected
+    dest.mkdir(exist_ok=True)
+    ts   = int(time.time())
+    path = dest / ("sample_" + str(ts) + ".jpg")
+    cv2.imwrite(str(path), region.warped)
+    recognizer.reload()
+    print("[bench] Sample -> " + str(path) + " (templates recharges)")
