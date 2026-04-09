@@ -175,7 +175,7 @@ def main():
 
     detector   = CardDetector(min_area=1500)
     recognizer = CardRecognizer(PLATEST_DIR)
-    cards      = [t.card_id for t in recognizer._templates]
+    cards      = [t.id for t in recognizer._templates]
 
     if not cards:
         print("[bench] Aucune carte dans PLATEST.")
