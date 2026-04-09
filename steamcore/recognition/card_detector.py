@@ -4,10 +4,10 @@ v2 -- Detection fond-independante via SIFT + homographie RANSAC.
 """
 from __future__ import annotations
 from pathlib import Path
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
-from dataclasses import dataclass
 
 
 def _find_images(directory: Path) -> list[Path]:
@@ -37,7 +37,6 @@ class CardDetector:
         min_matches: int  = 8,
         min_inliers: int  = 6,
         ratio_test: float = 0.75,
-        min_area: int     = 0,
     ):
         self.platest_dir = platest_dir
         self.min_matches = min_matches
@@ -47,6 +46,8 @@ class CardDetector:
         self._matcher = cv2.BFMatcher(cv2.NORM_L2)
         self._templates: list[_Template] = []
         self._load_templates()
+
+    # ── public ──────────────────────────────────────────────
 
     def detect(self, frame: np.ndarray):
         gray = self._to_gray(frame)
@@ -75,6 +76,12 @@ class CardDetector:
     def reload(self):
         self._templates.clear()
         self._load_templates()
+
+    @property
+    def card_ids(self) -> list[str]:
+        return [t.card_id for t in self._templates]
+
+    # ── private ─────────────────────────────────────────────
 
     def _load_templates(self):
         p = Path(self.platest_dir)
@@ -156,7 +163,7 @@ class CardDetector:
 
 class _Template:
     def __init__(self, card_id: str, paths, sift):
-        self.card_id = card_id
+        self.card_id = card_id          # <-- .card_id partout, jamais .id
         self.descs: list[tuple] = []
         for p in paths:
             img = cv2.imread(str(p))

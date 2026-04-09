@@ -44,6 +44,8 @@ class CardRecognizer:
         self._templates: list[_OrbTemplate] = []
         self._load()
 
+    # ── public ──────────────────────────────────────────────
+
     def recognize(self, warped: np.ndarray, hint_id: str | None = None):
         gray = self._to_gray(warped)
         gray = cv2.resize(gray, (self.WARP_SIZE, self.WARP_SIZE))
@@ -60,7 +62,7 @@ class CardRecognizer:
                 best_score, best_matches, best_id = score, matches, tmpl.card_id
         if best_id is None or best_score < self.threshold                 or best_matches < self.min_matches:
             return None
-        label = best_id.replace("plate_","").replace("_"," ").capitalize()
+        label = best_id.replace("plate_", "").replace("_", " ").capitalize()
         return RecognitionResult(card_id=best_id, label=label,
                                  score=best_score, matches=best_matches)
 
@@ -68,6 +70,12 @@ class CardRecognizer:
         self._templates.clear()
         self._load()
         print("[recognizer] " + str(len(self._templates)) + " cartes rechargees")
+
+    @property
+    def card_ids(self) -> list[str]:
+        return [t.card_id for t in self._templates]   # <-- .card_id partout
+
+    # ── private ─────────────────────────────────────────────
 
     def _load(self):
         p = Path(self.platest_dir)
@@ -109,14 +117,15 @@ class CardRecognizer:
 
 class _OrbTemplate:
     def __init__(self, card_id: str, paths, orb):
-        self.card_id = card_id
+        self.card_id = card_id          # <-- .card_id partout, jamais .id
         self.descs: list[tuple] = []
         for p in paths:
             img = cv2.imread(str(p))
             if img is None:
                 continue
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            gray = cv2.resize(gray, (CardRecognizer.WARP_SIZE, CardRecognizer.WARP_SIZE))
+            gray = cv2.resize(gray, (CardRecognizer.WARP_SIZE,
+                                     CardRecognizer.WARP_SIZE))
             kps, desc = orb.detectAndCompute(gray, None)
             if desc is not None and len(kps) >= 6:
                 self.descs.append((kps, desc))
