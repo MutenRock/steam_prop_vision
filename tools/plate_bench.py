@@ -1,17 +1,6 @@
 """
 tools/plate_bench.py
-Jeu de test interactif -- valider la reconnaissance des 5 cartes.
-
-Usage :
-  python tools/plate_bench.py           # webcam
-  python tools/plate_bench.py --pi      # picamera2
-  python tools/plate_bench.py --report  # genere rapport CSV a la fin
-
-Session :
-  - Tu montres chaque carte devant la camera
-  - Appuie ESPACE pour capturer et tester
-  - Le resultat s affiche : bonne carte / mauvaise / non reconnue
-  - A la fin : tableau recapitulatif + score global
+Bench interactif -- camera ouverte UNE seule fois avant le menu.
 """
 from __future__ import annotations
 import sys, time, csv, argparse
@@ -41,29 +30,28 @@ GOLD   = (0,   200, 220)
 
 @dataclass
 class TestResult:
-    expected:   str
-    got:        str | None
-    score:      float
-    matches:    int
+    expected:    str
+    got:         str | None
+    score:       float
+    matches:     int
     duration_ms: float
-    ok:         bool
+    ok:          bool
 
 
 @dataclass
 class Session:
     results: list[TestResult] = field(default_factory=list)
-    start:   float            = field(default_factory=time.time)
 
     @property
-    def total(self):     return len(self.results)
+    def total(self):    return len(self.results)
     @property
-    def correct(self):   return sum(1 for r in self.results if r.ok)
+    def correct(self):  return sum(1 for r in self.results if r.ok)
     @property
-    def missed(self):    return sum(1 for r in self.results if r.got is None)
+    def missed(self):   return sum(1 for r in self.results if r.got is None)
     @property
-    def wrong(self):     return sum(1 for r in self.results if r.got and not r.ok)
+    def wrong(self):    return sum(1 for r in self.results if r.got and not r.ok)
     @property
-    def accuracy(self):  return (self.correct / self.total * 100) if self.total else 0
+    def accuracy(self): return (self.correct / self.total * 100) if self.total else 0.0
 
 
 def put(img, text, pos, color=WHITE, scale=0.55, thick=1):
@@ -72,6 +60,7 @@ def put(img, text, pos, color=WHITE, scale=0.55, thick=1):
 
 
 def make_camera(use_pi: bool):
+    """Ouvre la camera UNE seule fois."""
     if use_pi:
         try:
             from picamera2 import Picamera2
@@ -81,12 +70,14 @@ def make_camera(use_pi: bool):
             ))
             cam.start()
             time.sleep(0.5)
+            print("[cam] Picamera2 OK")
             return "pi", cam
         except Exception as e:
-            print("[cam] picamera2 indisponible : " + str(e) + " -> webcam")
+            print("[cam] picamera2 indispo : " + str(e) + " -> webcam")
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    print("[cam] Webcam OK")
     return "web", cap
 
 
@@ -100,19 +91,16 @@ def read_frame(cam_type, cam):
 
 
 def stop_camera(cam_type, cam):
-    if cam_type == "pi":
-        cam.stop()
-    else:
-        cam.release()
+    if cam_type == "pi": cam.stop()
+    else:                cam.release()
 
 
-def draw_all_scores(frame, recognizer, region):
-    """Panneau scores droite -- toutes les cartes."""
-    orb    = cv2.ORB_create(nfeatures=800)
-    matcher= cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
-    gray_w = cv2.cvtColor(region.warped, cv2.COLOR_BGR2GRAY)              if len(region.warped.shape)==3 else region.warped
-    gray_w = cv2.resize(gray_w, (WARP_SIZE, WARP_SIZE))
-    kps_q, desc_q = orb.detectAndCompute(gray_w, None)
+def compute_all_scores(recognizer, warped):
+    orb     = cv2.ORB_create(nfeatures=800)
+    matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+    gray    = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)               if len(warped.shape)==3 else warped
+    gray    = cv2.resize(gray, (WARP_SIZE, WARP_SIZE))
+    kps_q, desc_q = orb.detectAndCompute(gray, None)
     scores = []
     if desc_q is not None:
         for t in recognizer._templates:
@@ -125,103 +113,58 @@ def draw_all_scores(frame, recognizer, region):
                     top_s, top_m = s, len(good)
             scores.append((t.id, top_s, top_m))
     scores.sort(key=lambda x: -x[1])
-
-    x0, y0 = frame.shape[1] - 265, 10
-    panel_h = 30 + len(scores) * 28 + 10
-    ov = frame.copy()
-    cv2.rectangle(ov, (x0-8, y0-5), (frame.shape[1]-5, y0+panel_h), BLACK, -1)
-    cv2.addWeighted(ov, 0.6, frame, 0.4, 0, frame)
-    put(frame, "Scores ORB", (x0, y0+16), GOLD, 0.55, 1)
-
-    best_id = scores[0][0] if scores else None
-    for i, (cid, sc, mc) in enumerate(scores):
-        y     = y0 + 38 + i * 28
-        color = GREEN if cid == best_id else GRAY
-        bar   = int(min(sc * 1200, 165))
-        cv2.rectangle(frame, (x0, y-12), (x0+bar, y+4), color, -1)
-        name  = cid.replace("plate_","")[:10]
-        put(frame, name + "  " + str(round(sc,3)) + " (" + str(mc) + ")",
-            (x0+bar+5, y), color, 0.45)
     return scores
 
 
-def draw_result_banner(frame, result, expected, duration_ms):
-    h, w = frame.shape[:2]
-    ok    = result is not None and result.card_id == expected
-    color = GREEN if ok else (ORANGE if result is None else RED)
-    label = "OK  " + result.label if ok             else ("NON RECONNUE" if result is None             else "ERREUR -> " + result.label)
-    cv2.rectangle(frame, (0, h-60), (w, h), BLACK, -1)
-    put(frame, label, (20, h-30), color, 0.9, 2)
-    put(frame, str(round(duration_ms)) + " ms", (w-120, h-30), GRAY, 0.5)
-
-
-def interactive_ask_card(cards: list[str]) -> str:
-    """Demande quelle carte va etre presentee."""
+def ask_card_terminal(cards: list[str]) -> str | None:
+    """Question posee dans le terminal SANS fermer la camera."""
     print()
-    print("  Quelle carte allez-vous presenter ?")
+    print("  Quelle carte presenter ?  (0=fin)")
     for i, c in enumerate(cards):
         print("    [" + str(i+1) + "] " + c.replace("plate_","").capitalize())
-    print("    [0] Fin du bench")
     while True:
         rep = input("  > ").strip()
         if rep == "0":
-            return "__end__"
+            return None
         try:
             idx = int(rep) - 1
             if 0 <= idx < len(cards):
                 return cards[idx]
         except ValueError:
             pass
-        print("  Choix invalide.")
 
 
-def draw_summary(session: Session, cards: list[str]) -> np.ndarray:
-    """Image de synthese finale."""
-    h, w  = 80 + len(cards)*36 + 80, 700
-    img   = np.zeros((h, w, 3), dtype=np.uint8)
-    title = "BENCH S.T.E.A.M -- " + str(session.correct) + "/" + str(session.total) +             "  (" + str(round(session.accuracy, 1)) + "%)"
-    put(img, title, (20, 35), GOLD, 0.75, 2)
-
-    per_card: dict[str, list[TestResult]] = {c: [] for c in cards}
-    for r in session.results:
-        if r.expected in per_card:
-            per_card[r.expected].append(r)
-
-    for i, cid in enumerate(cards):
-        y    = 70 + i * 36
-        rs   = per_card[cid]
-        ok   = sum(1 for r in rs if r.ok)
-        tot  = len(rs)
-        name = cid.replace("plate_","").capitalize()
-        if tot == 0:
-            color, tag = GRAY, "non testee"
-        elif ok == tot:
-            color, tag = GREEN, str(ok) + "/" + str(tot) + " OK"
-        elif ok > 0:
-            color, tag = ORANGE, str(ok) + "/" + str(tot) + " partiel"
-        else:
-            color, tag = RED, "0/" + str(tot) + " echec"
-        avg_score = round(sum(r.score for r in rs)/max(len(rs),1), 3)
-        put(img, name.ljust(14) + tag.ljust(16) + "score moy=" + str(avg_score),
-            (20, y), color, 0.55)
-
-    put(img, "Correct:" + str(session.correct) + "  Manques:" + str(session.missed) +
-        "  Erreurs:" + str(session.wrong),
-        (20, h-20), GRAY, 0.5)
-    return img
+def draw_scores(frame, scores, best_id):
+    x0, y0 = frame.shape[1] - 270, 10
+    panel_h = 30 + len(scores) * 26 + 10
+    ov = frame.copy()
+    cv2.rectangle(ov, (x0-8, y0-5), (frame.shape[1]-5, y0+panel_h), BLACK, -1)
+    cv2.addWeighted(ov, 0.6, frame, 0.4, 0, frame)
+    put(frame, "Scores ORB", (x0, y0+16), GOLD, 0.5)
+    for i, (cid, sc, mc) in enumerate(scores):
+        y     = y0 + 36 + i*26
+        color = GREEN if cid == best_id else GRAY
+        bar   = int(min(sc * 1100, 160))
+        cv2.rectangle(frame, (x0, y-12), (x0+bar, y+4), color, -1)
+        name  = cid.replace("plate_","")[:9]
+        put(frame, name + "  " + str(round(sc,3)) + " (" + str(mc) + ")",
+            (x0+bar+5, y), color, 0.42)
 
 
-def save_csv(session: Session, cards: list[str]):
-    ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
-    name = "bench_" + ts + ".csv"
-    with open(name, "w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["expected","got","score","matches","duration_ms","ok"])
-        for r in session.results:
-            w.writerow([r.expected, r.got or "", r.score,
-                        r.matches, round(r.duration_ms), r.ok])
-    print("[bench] Rapport -> " + name)
-    return name
+def draw_hud(frame, fps, expected, last_result):
+    h, w = frame.shape[:2]
+    exp_name = expected.replace("plate_","").upper() if expected else "---"
+    put(frame, "FPS " + str(round(fps,1)) + "  |  Carte : " + exp_name,
+        (10, 30), GOLD, 0.6, 1)
+    put(frame, "ESPACE=tester  R=reload  Q=quitter  (terminal : changer carte)",
+        (10, h-12), GRAY, 0.42)
+    if last_result:
+        res, exp_last, dur = last_result
+        ok    = res is not None and res.card_id == exp_last
+        color = GREEN if ok else (ORANGE if res is None else RED)
+        label = ("OK : " + res.label) if ok else ("RATE" if res is None else "ERREUR -> " + (res.label if res else ""))
+        cv2.rectangle(frame, (0, h-55), (w, h-35), BLACK, -1)
+        put(frame, label + "  " + str(round(dur)) + "ms", (10, h-38), color, 0.6, 1)
 
 
 def main():
@@ -235,139 +178,162 @@ def main():
     cards      = [t.id for t in recognizer._templates]
 
     if not cards:
-        print("[bench] Aucune carte dans PLATEST -- abandonne.")
+        print("[bench] Aucune carte dans PLATEST.")
         return
 
     print()
     print("=" * 55)
     print("  S.T.E.A.M Plate Bench")
     print("=" * 55)
-    print("  " + str(len(cards)) + " carte(s) chargees : " + ", ".join(c.replace("plate_","") for c in cards))
-    print()
-    print("  ESPACE = capturer et tester")
-    print("  R      = recharger templates")
-    print("  Q/ESC  = terminer session")
+    print("  " + str(len(cards)) + " cartes : " +
+          ", ".join(c.replace("plate_","") for c in cards))
     print()
 
+    # ── Camera ouverte UNE SEULE FOIS ────────────────────────
     cam_type, cam = make_camera(args.pi)
-    session       = Session()
-    last_result   = None
-    last_scores   = []
-    snap_count    = 0
-    prev_time     = time.time()
-    expected      = None
-    waiting_card  = True
+
+    session     = Session()
+    expected    = cards[0]
+    last_result = None
+    last_scores = []
+    snap_count  = 0
+    prev_time   = time.time()
+    freeze_until = 0.0
+
+    print("[bench] Prêt -- touches : ESPACE tester | R reload | Q quitter")
+    print("[bench] Pour changer de carte : taper 1-" + str(len(cards)) +
+          " dans ce terminal puis Entree")
+    print()
+
+    cv2.namedWindow("S.T.E.A.M Plate Bench", cv2.WINDOW_AUTOSIZE)
+
+    import threading
+
+    # Thread terminal : changer la carte sans bloquer la camera
+    def terminal_input():
+        nonlocal expected, last_result, last_scores
+        while True:
+            try:
+                line = input()
+                line = line.strip()
+                if line == "0" or line.lower() == "q":
+                    break
+                idx = int(line) - 1
+                if 0 <= idx < len(cards):
+                    expected    = cards[idx]
+                    last_result = None
+                    last_scores = []
+                    print("[bench] Carte -> " + expected.replace("plate_","").upper())
+                    print("  Montrez la carte et appuyez ESPACE")
+            except (ValueError, EOFError):
+                pass
+
+    t = threading.Thread(target=terminal_input, daemon=True)
+    t.start()
+
+    print("  Carte courante : " + expected.replace("plate_","").upper())
+    print("  Montrez la carte et appuyez ESPACE")
 
     while True:
-        # Demander quelle carte avant chaque test
-        if waiting_card:
-            stop_camera(cam_type, cam)
-            cv2.destroyAllWindows()
-            expected = interactive_ask_card(cards)
-            if expected == "__end__":
-                break
-            cam_type, cam = make_camera(args.pi)
-            waiting_card  = False
-            last_result   = None
-            last_scores   = []
-            print("  Montrez la carte [" + expected.replace("plate_","").capitalize() + "] puis appuyez ESPACE")
-
         ok, frame = read_frame(cam_type, cam)
         if not ok or frame is None:
             continue
 
-        now = time.time()
-        fps = 1.0 / max(now - prev_time, 0.001)
+        now   = time.time()
+        fps   = 1.0 / max(now - prev_time, 0.001)
         prev_time = now
-        display   = frame.copy()
+        freeze = now < freeze_until
 
         region = detector.detect(frame)
+        result = None
+        if region is not None and not freeze:
+            result      = recognizer.recognize(region.warped)
+            last_scores = compute_all_scores(recognizer, region.warped)
+            corners     = region.corners.astype(np.int32)
+            color       = GREEN if result else ORANGE
+            cv2.polylines(frame, [corners], True, color, 2)
+            for pt in corners:
+                cv2.circle(frame, tuple(pt), 5, color, -1)
+            warp_th = cv2.resize(region.warped, (160, 160))
+            frame[8:168, 8:168] = warp_th
+            if result:
+                cx = int(corners[:,0].mean())
+                cy = int(corners[:,1].mean())
+                put(frame, result.label, (cx-60, cy-12), GREEN, 0.75, 2)
 
-        if region is not None:
-            last_scores = draw_all_scores(display, recognizer, region)
-            corners = region.corners.astype(np.int32)
-            cv2.polylines(display, [corners], True, ORANGE, 2)
-            warp_thumb = cv2.resize(region.warped, (160, 160))
-            display[10:170, 10:170] = warp_thumb
+        if last_scores:
+            best_id = last_scores[0][0] if last_scores else None
+            draw_scores(frame, last_scores, best_id)
 
-        put(display, "FPS: " + str(round(fps,1)), (185, 25), GRAY)
-        put(display, "Carte attendue : " + expected.replace("plate_","").upper(),
-            (185, 55), GOLD, 0.65, 1)
-        put(display, "ESPACE=capturer  R=reload  Q=quitter",
-            (10, display.shape[0]-10), GRAY, 0.45)
-
-        if last_result is not None:
-            draw_result_banner(display, last_result[0], last_result[1], last_result[2])
-
-        cv2.imshow("S.T.E.A.M -- Plate Bench", display)
+        draw_hud(frame, fps, expected, last_result)
+        cv2.imshow("S.T.E.A.M Plate Bench", frame)
         key = cv2.waitKey(1) & 0xFF
 
         if key in (ord("q"), 27):
             break
-
         elif key == ord("r"):
             recognizer.reload()
+            last_scores = []
             print("[bench] Templates recharges")
-
         elif key == ord(" "):
-            # Capture et test
-            t0 = time.time()
+            t0   = time.time()
             reg2 = detector.detect(frame)
             if reg2 is None:
-                print("[bench] Aucun losange detecte -- reessaie")
+                print("[bench] Aucun losange -- reessaie")
                 continue
-            result  = recognizer.recognize(reg2.warped)
+            res     = recognizer.recognize(reg2.warped)
             dur_ms  = (time.time() - t0) * 1000
-            got     = result.card_id if result else None
-            score   = result.score   if result else 0.0
-            matches = result.matches if result else 0
+            got     = res.card_id if res else None
+            score   = res.score   if res else 0.0
+            matches = res.matches if res else 0
             ok_flag = got == expected
-
-            tr = TestResult(expected=expected, got=got, score=score,
-                            matches=matches, duration_ms=dur_ms, ok=ok_flag)
-            session.results.append(tr)
-            last_result = (result, expected, dur_ms)
-
+            session.results.append(TestResult(
+                expected=expected, got=got, score=score,
+                matches=matches, duration_ms=dur_ms, ok=ok_flag))
+            last_result  = (res, expected, dur_ms)
+            freeze_until = now + 2.0
             emoji = "OK" if ok_flag else ("RATE" if got is None else "ERREUR")
-            print("[bench] " + emoji + " | attendu=" + expected.replace("plate_","") +
+            print("[bench] " + emoji +
+                  " | attendu=" + expected.replace("plate_","") +
                   " | obtenu=" + (got or "rien").replace("plate_","") +
                   " | score=" + str(round(score,3)) +
+                  " | m=" + str(matches) +
                   " | " + str(round(dur_ms)) + "ms")
-
-            # Sauvegarder snapshot
             snap_count += 1
-            fname = "bench_snap_" + str(snap_count).zfill(3) + "_" + emoji + ".jpg"
-            cv2.imwrite(fname, display)
-
-            # Passer a la carte suivante apres 2s
-            cv2.imshow("S.T.E.A.M -- Plate Bench", display)
-            cv2.waitKey(2000)
-            waiting_card = True
+            cv2.imwrite("bench_" + str(snap_count).zfill(3) + "_" + emoji + ".jpg", frame)
 
     stop_camera(cam_type, cam)
     cv2.destroyAllWindows()
 
     if session.total == 0:
-        print("[bench] Aucun test effectue.")
+        print("[bench] Aucun test.")
         return
 
-    # Afficher synthese
     print()
-    print("=" * 55)
-    print("  RESULTATS FINAUX")
-    print("=" * 55)
-    print("  Correct  : " + str(session.correct) + "/" + str(session.total))
-    print("  Manques  : " + str(session.missed))
-    print("  Erreurs  : " + str(session.wrong))
-    print("  Precision: " + str(round(session.accuracy, 1)) + "%")
-
-    summary_img = draw_summary(session, cards)
-    cv2.imshow("Bench Summary", summary_img)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    print("=" * 50)
+    print("  SCORE : " + str(session.correct) + "/" + str(session.total) +
+          "  (" + str(round(session.accuracy,1)) + "%)")
+    print("  Manques : " + str(session.missed) +
+          "  Erreurs : " + str(session.wrong))
+    per = {c: [r for r in session.results if r.expected==c] for c in cards}
+    for cid, rs in per.items():
+        if not rs: continue
+        ok  = sum(1 for r in rs if r.ok)
+        avg = round(sum(r.score for r in rs)/len(rs), 3)
+        print("  " + cid.replace("plate_","").ljust(12) +
+              str(ok) + "/" + str(len(rs)) + "  score_moy=" + str(avg))
+    print("=" * 50)
 
     if args.report:
-        save_csv(session, cards)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        name = "bench_" + ts + ".csv"
+        with open(name, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["expected","got","score","matches","duration_ms","ok"])
+            for r in session.results:
+                w.writerow([r.expected, r.got or "", r.score,
+                            r.matches, round(r.duration_ms), r.ok])
+        print("[bench] CSV -> " + name)
 
 
 if __name__ == "__main__":
