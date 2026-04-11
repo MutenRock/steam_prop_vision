@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(commit-commands:commit-push-pr)",
+      "Skill(commit-commands:commit-push-pr:*)",
+      "Bash(python3 tools/plate_bench.py --pi --no-display)",
+      "Bash(python3 -m pip show opencv-python)",
+      "Bash(python3 -c \"import sys; print\\(sys.executable\\)\")",
+      "Bash(python -m venv .venv)",
+      "Bash(.venv/Scripts/pip install:*)",
+      "Bash(.venv/Scripts/python tools/plate_bench.py --pi --no-display)"
+    ]
+  }
+}

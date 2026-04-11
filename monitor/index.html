@@ -3,165 +3,337 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>S.T.E.A.M Monitor</title>
+<title>S.T.E.A.M Admin</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: #111;
-    color: #eee;
-    font-family: 'Courier New', monospace;
-    padding: 24px;
-    min-height: 100vh;
-  }
-  h1 { color: #0df; font-size: 1.4rem; margin-bottom: 20px; letter-spacing: 2px; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 900px; }
-  .card {
-    background: #1e1e1e;
-    border: 1px solid #333;
-    border-radius: 8px;
-    padding: 16px;
-  }
-  .card h2 { color: #0df; font-size: 0.85rem; text-transform: uppercase;
-             letter-spacing: 1px; margin-bottom: 12px; }
-  .status-row { display: flex; justify-content: space-between;
-                padding: 4px 0; border-bottom: 1px solid #222; font-size: 0.9rem; }
-  .status-row:last-child { border-bottom: none; }
-  .label { color: #888; }
-  .value { color: #fff; font-weight: bold; }
-  .value.ok    { color: #4caf50; }
-  .value.warn  { color: #ff9800; }
-  .value.error { color: #f44336; }
-  #log-list {
-    list-style: none;
-    max-height: 300px;
-    overflow-y: auto;
-    font-size: 0.82rem;
-  }
-  #log-list li {
-    padding: 3px 0;
-    border-bottom: 1px solid #222;
-    color: #ccc;
-  }
-  #log-list li .ts   { color: #555; margin-right: 8px; }
-  #log-list li .evt  { color: #0df; }
-  #log-list li .det  { color: #4caf50; }
-  #log-list li .udp  { color: #ff9800; }
-  #log-list li .err  { color: #f44336; }
-  .conn-badge {
-    display: inline-block;
-    padding: 2px 10px;
-    border-radius: 12px;
-    font-size: 0.75rem;
-    font-weight: bold;
-    margin-left: 12px;
-    vertical-align: middle;
-  }
-  .conn-badge.connected    { background: #1b5e20; color: #4caf50; }
-  .conn-badge.disconnected { background: #4e0000; color: #f44336; }
-  .conn-badge.connecting   { background: #3e2700; color: #ff9800; }
-  input, button {
-    background: #2a2a2a; color: #eee;
-    border: 1px solid #444; border-radius: 4px;
-    padding: 6px 10px; font-family: inherit;
-  }
-  button { cursor: pointer; }
-  button:hover { background: #3a3a3a; }
-  .full { grid-column: 1 / -1; }
+:root {
+  --bg:       #0e0e0e;
+  --surface:  #181818;
+  --surface2: #222;
+  --border:   #2e2e2e;
+  --text:     #ddd;
+  --muted:    #666;
+  --cyan:     #0df;
+  --green:    #4caf50;
+  --orange:   #ff9800;
+  --red:      #f44336;
+  --purple:   #bb86fc;
+  --yellow:   #ffd54f;
+  --r:        6px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  min-height: 100vh;
+  padding: 16px;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.title { color: var(--cyan); font-size: 1.1rem; letter-spacing: 3px; font-weight: bold; }
+.conn-badge {
+  padding: 2px 10px; border-radius: 12px;
+  font-size: 11px; font-weight: bold;
+}
+.conn-badge.connected    { background: #1b5e20; color: var(--green); }
+.conn-badge.disconnected { background: #4e0000; color: var(--red); }
+.conn-badge.connecting   { background: #3e2700; color: var(--orange); }
+
+.header-controls { display: flex; gap: 6px; align-items: center; margin-left: auto; flex-wrap: wrap; }
+input.host-input {
+  background: var(--surface2); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--r);
+  padding: 5px 8px; font-family: inherit; font-size: 12px; width: 130px;
+}
+input.port-input {
+  background: var(--surface2); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--r);
+  padding: 5px 8px; font-family: inherit; font-size: 12px; width: 60px;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────── */
+button {
+  background: var(--surface2); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--r);
+  padding: 5px 12px; font-family: inherit; font-size: 12px; cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+button:hover { background: #2e2e2e; border-color: var(--cyan); }
+button.primary { background: #004d5a; border-color: var(--cyan); color: var(--cyan); }
+button.primary:hover { background: #006070; }
+button.danger { border-color: var(--red); color: var(--red); }
+
+/* ── Grid layout ─────────────────────────────────────────────── */
+.grid {
+  display: grid;
+  grid-template-columns: 280px 1fr 1fr;
+  grid-template-rows: auto auto 1fr;
+  gap: 12px;
+  max-width: 1400px;
+}
+@media (max-width: 900px) {
+  .grid { grid-template-columns: 1fr 1fr; }
+}
+
+/* ── Cards ───────────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 14px;
+}
+.card-title {
+  color: var(--cyan); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 1.5px; margin-bottom: 10px; font-weight: bold;
+}
+.row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 12px;
+}
+.row:last-child { border-bottom: none; }
+.row .lbl { color: var(--muted); }
+.row .val { font-weight: bold; color: #fff; }
+.row .val.ok   { color: var(--green); }
+.row .val.warn { color: var(--orange); }
+.row .val.err  { color: var(--red); }
+
+/* ── Pipeline state (big) ────────────────────────────────────── */
+.state-box {
+  text-align: center;
+  padding: 18px 12px;
+  border-radius: var(--r);
+  margin-bottom: 10px;
+  font-size: 1.4rem;
+  font-weight: bold;
+  letter-spacing: 4px;
+  transition: background .3s, color .3s;
+}
+.state-box.IDLE       { background: #1a1a1a; color: var(--muted); border: 2px solid #333; }
+.state-box.INSPECTION { background: #2a1f00; color: var(--orange); border: 2px solid var(--orange); }
+.state-box.TRIGGERED  { background: #002a08; color: var(--green);  border: 2px solid var(--green);
+  box-shadow: 0 0 20px rgba(76,175,80,.3); }
+
+/* ── Plates grid ─────────────────────────────────────────────── */
+.plates-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+@media (max-width: 1100px) {
+  .plates-grid { grid-template-columns: repeat(3, 1fr); }
+}
+.plate-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 10px;
+  text-align: center;
+  transition: border-color .2s, box-shadow .2s, background .2s;
+}
+.plate-card.flash {
+  border-color: var(--cyan);
+  background: #002530;
+  box-shadow: 0 0 14px rgba(0,221,255,.25);
+}
+.plate-name { font-size: 11px; font-weight: bold; color: var(--cyan); text-transform: uppercase; margin-bottom: 6px; }
+.plate-score { font-size: 18px; font-weight: bold; color: #fff; margin-bottom: 2px; }
+.plate-score.dim { color: var(--muted); font-size: 14px; }
+.plate-count { font-size: 10px; color: var(--muted); margin-bottom: 4px; }
+.plate-time  { font-size: 10px; color: #555; }
+
+/* ── UDP log ─────────────────────────────────────────────────── */
+.udp-list {
+  list-style: none;
+  max-height: 130px;
+  overflow-y: auto;
+  font-size: 11px;
+}
+.udp-list li { padding: 2px 0; border-bottom: 1px solid #1e1e1e; }
+.udp-list li .ts  { color: #444; margin-right: 6px; }
+.udp-list li .dir { margin-right: 4px; font-weight: bold; }
+.udp-list li .dir.out { color: var(--orange); }
+.udp-list li .dir.in  { color: var(--purple); }
+
+/* ── Event log ───────────────────────────────────────────────── */
+.full { grid-column: 1 / -1; }
+#log-list {
+  list-style: none;
+  max-height: 240px;
+  overflow-y: auto;
+  font-size: 11px;
+}
+#log-list li { padding: 2px 0; border-bottom: 1px solid #1a1a1a; }
+#log-list li .ts  { color: #444; margin-right: 8px; }
+.c-cyan   { color: var(--cyan); }
+.c-green  { color: var(--green); }
+.c-orange { color: var(--orange); }
+.c-red    { color: var(--red); }
+.c-purple { color: var(--purple); }
+.c-yellow { color: var(--yellow); }
+.c-muted  { color: var(--muted); }
+
+/* ── Admin bar ───────────────────────────────────────────────── */
+.admin-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+.sep { color: var(--border); }
 </style>
 </head>
 <body>
 
-<h1>
-  👁 S.T.E.A.M Vision Monitor
+<!-- ── Header ── -->
+<div class="header">
+  <span class="title">👁 S.T.E.A.M ADMIN</span>
   <span id="conn-badge" class="conn-badge disconnected">DISCONNECTED</span>
-</h1>
+  <span id="hb-badge" style="font-size:11px;color:var(--muted)">⬤ —</span>
+  <div class="header-controls">
+    <input id="ws-host" class="host-input" value="192.168.1.X" placeholder="IP du Pi">
+    <input id="ws-port" class="port-input" value="8889" placeholder="WS">
+    <button class="primary" onclick="connect()">Connecter</button>
+    <button onclick="disconnect()">✕</button>
+    <span class="sep">|</span>
+    <button onclick="openRuleEditor()" title="Rule Editor (port 8890)">⚙ Rules</button>
+    <button onclick="reloadRules()" title="Recharger les règles sur le Pi">↺ Reload</button>
+  </div>
+</div>
 
+<!-- ── Main grid ── -->
 <div class="grid">
 
-  <!-- Connexion -->
-  <div class="card">
-    <h2>Connexion WebSocket</h2>
-    <div style="display:flex;gap:8px;margin-bottom:12px">
-      <input id="ws-host" value="192.168.1.X" style="width:140px">
-      <input id="ws-port" value="8889" style="width:70px">
-      <button onclick="connect()">Connecter</button>
-      <button onclick="disconnect()">✕</button>
-    </div>
-    <div class="status-row">
-      <span class="label">Host</span>
-      <span class="value" id="info-host">—</span>
-    </div>
-    <div class="status-row">
-      <span class="label">Latence dernière msg</span>
-      <span class="value" id="info-latency">—</span>
-    </div>
-    <div class="status-row">
-      <span class="label">Messages reçus</span>
-      <span class="value" id="info-count">0</span>
+  <!-- Col 1 : Pipeline state + person -->
+  <div class="card" style="grid-row: span 2">
+    <div class="card-title">Pipeline</div>
+    <div id="state-box" class="state-box IDLE">IDLE</div>
+    <div class="row"><span class="lbl">Personnes</span><span class="val" id="st-count">—</span></div>
+    <div class="row"><span class="lbl">Mouvement</span><span class="val" id="st-move">—</span></div>
+    <div class="row"><span class="lbl">Dernière carte</span><span class="val c-cyan" id="st-label">—</span></div>
+    <div class="row"><span class="lbl">Score</span><span class="val" id="st-score">—</span></div>
+    <div class="row"><span class="lbl">Dernier UDP →</span><span class="val c-orange" id="st-udp">—</span></div>
+    <div class="row"><span class="lbl">Audio</span><span class="val" id="st-audio">—</span></div>
+    <div class="row"><span class="lbl">Vidéo</span><span class="val" id="st-video">—</span></div>
+    <div class="row"><span class="lbl">Messages WS</span><span class="val" id="info-count">0</span></div>
+    <div class="row"><span class="lbl">Latence</span><span class="val" id="info-latency">—</span></div>
+
+    <!-- Admin actions -->
+    <div style="margin-top:12px">
+      <div class="card-title" style="margin-bottom:8px">Tests rapides</div>
+      <div class="admin-row">
+        <select id="test-card-sel" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--r);padding:4px 8px;font-size:12px;font-family:inherit">
+          <option value="plate_bougie">bougie</option>
+          <option value="plate_cellule">cellule</option>
+          <option value="plate_chaudron">chaudron</option>
+          <option value="plate_dague">dague</option>
+          <option value="plate_vampire">vampire</option>
+        </select>
+        <button onclick="testCard()" title="Injecter détection de carte">▶ Injecter</button>
+      </div>
+      <div class="admin-row" style="margin-top:6px">
+        <input id="udp-test-msg" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--r);padding:4px 8px;font-size:11px;font-family:inherit;flex:1"
+               value="STEAM_TEST" placeholder="Message UDP">
+        <button onclick="testUDP()" title="Envoyer UDP test">📡 UDP</button>
+      </div>
     </div>
   </div>
 
-  <!-- État pipeline -->
-  <div class="card">
-    <h2>État Pipeline</h2>
-    <div class="status-row">
-      <span class="label">Status</span>
-      <span class="value ok" id="st-status">—</span>
-    </div>
-    <div class="status-row">
-      <span class="label">Dernière détection</span>
-      <span class="value det" id="st-label">—</span>
-    </div>
-    <div class="status-row">
-      <span class="label">Confiance</span>
-      <span class="value" id="st-conf">—</span>
-    </div>
-    <div class="status-row">
-      <span class="label">Dernier UDP envoyé</span>
-      <span class="value udp" id="st-udp">—</span>
-    </div>
-    <div class="status-row">
-      <span class="label">Audio</span>
-      <span class="value" id="st-audio">—</span>
-    </div>
-    <div class="status-row">
-      <span class="label">Heartbeat</span>
-      <span class="value ok" id="st-heart">—</span>
+  <!-- Col 2-3 : Plates grid -->
+  <div class="card" style="grid-column: span 2">
+    <div class="card-title">Plaques détectées</div>
+    <div class="plates-grid" id="plates-grid">
+      <!-- généré par JS -->
     </div>
   </div>
 
-  <!-- Log events -->
+  <!-- Col 2 : UDP log -->
+  <div class="card">
+    <div class="card-title">UDP
+      <button onclick="clearUDP()" style="float:right;font-size:10px;padding:1px 6px">Vider</button>
+    </div>
+    <ul class="udp-list" id="udp-list"></ul>
+  </div>
+
+  <!-- Col 3 : Heartbeat + connexion info -->
+  <div class="card">
+    <div class="card-title">Système</div>
+    <div class="row"><span class="lbl">Heartbeat</span><span class="val ok" id="st-heart">—</span></div>
+    <div class="row"><span class="lbl">Host connecté</span><span class="val" id="info-host">—</span></div>
+    <div class="row"><span class="lbl">Rule API</span><span class="val" id="st-api">—</span></div>
+  </div>
+
+  <!-- Log complet -->
   <div class="card full">
-    <h2>Log événements
-      <button onclick="clearLog()" style="float:right;font-size:0.75rem;padding:2px 8px">Vider</button>
-    </h2>
+    <div class="card-title">Log événements
+      <button onclick="clearLog()" style="float:right;font-size:10px;padding:1px 6px">Vider</button>
+    </div>
     <ul id="log-list"></ul>
   </div>
 
 </div>
 
 <script>
-let ws = null;
-let msgCount = 0;
-let lastMsgTime = null;
+// ── State ────────────────────────────────────────────────────────
+let ws = null, msgCount = 0, lastMsgTime = null;
 
-function ts() {
-  return new Date().toLocaleTimeString('fr-FR', {hour12: false});
+const PLATES = ['plate_bougie','plate_cellule','plate_chaudron','plate_dague','plate_vampire'];
+const plateStat = {};
+PLATES.forEach(id => {
+  plateStat[id] = { count: 0, lastScore: null, lastTime: null };
+});
+
+// ── Init plates grid ─────────────────────────────────────────────
+function buildPlatesGrid() {
+  const g = document.getElementById('plates-grid');
+  g.innerHTML = PLATES.map(id => {
+    const name = id.replace('plate_', '');
+    return `<div class="plate-card" id="pc-${id}">
+      <div class="plate-name">${name}</div>
+      <div class="plate-score dim" id="ps-score-${id}">—</div>
+      <div class="plate-count" id="ps-count-${id}">0 trigger(s)</div>
+      <div class="plate-time"  id="ps-time-${id}">jamais</div>
+    </div>`;
+  }).join('');
 }
+buildPlatesGrid();
+
+// ── Helpers ──────────────────────────────────────────────────────
+function ts() { return new Date().toLocaleTimeString('fr-FR', {hour12: false}); }
 
 function addLog(cls, text) {
   const li = document.createElement('li');
   li.innerHTML = `<span class="ts">${ts()}</span><span class="${cls}">${text}</span>`;
   const list = document.getElementById('log-list');
   list.prepend(li);
-  // Garder 200 entrées max
-  while (list.children.length > 200) list.removeChild(list.lastChild);
+  while (list.children.length > 300) list.removeChild(list.lastChild);
 }
 
-function clearLog() {
-  document.getElementById('log-list').innerHTML = '';
+function addUDP(dir, msg, addr) {
+  const li = document.createElement('li');
+  const dirCls = dir === 'out' ? 'out' : 'in';
+  const arrow  = dir === 'out' ? '→' : '←';
+  li.innerHTML = `<span class="ts">${ts()}</span><span class="dir ${dirCls}">${arrow}</span>` +
+                 `<span>${addr ? addr + ' ' : ''}${msg}</span>`;
+  const list = document.getElementById('udp-list');
+  list.prepend(li);
+  while (list.children.length > 60) list.removeChild(list.lastChild);
 }
 
+function clearLog()  { document.getElementById('log-list').innerHTML = ''; }
+function clearUDP()  { document.getElementById('udp-list').innerHTML = ''; }
+function set(id, v)  { const e = document.getElementById(id); if (e) e.textContent = v; }
+
+function flashPlate(cardId) {
+  const el = document.getElementById('pc-' + cardId);
+  if (!el) return;
+  el.classList.add('flash');
+  setTimeout(() => el.classList.remove('flash'), 1800);
+}
+
+// ── WebSocket ────────────────────────────────────────────────────
 function setBadge(state) {
   const b = document.getElementById('conn-badge');
   b.className = 'conn-badge ' + state;
@@ -173,84 +345,159 @@ function connect() {
   const host = document.getElementById('ws-host').value.trim();
   const port = document.getElementById('ws-port').value.trim();
   const url  = `ws://${host}:${port}`;
-
-  document.getElementById('info-host').textContent = url;
+  set('info-host', url);
   setBadge('connecting');
-  addLog('evt', `Connexion vers ${url}...`);
-
+  addLog('c-muted', `Connexion → ${url}…`);
   ws = new WebSocket(url);
-
-  ws.onopen = () => {
-    setBadge('connected');
-    addLog('evt', 'WebSocket connecté ✓');
-    document.getElementById('st-status').textContent = 'RUNNING';
-  };
-
-  ws.onmessage = (e) => {
-    msgCount++;
-    const now = performance.now();
-    if (lastMsgTime) {
-      document.getElementById('info-latency').textContent =
-        (now - lastMsgTime).toFixed(0) + ' ms';
-    }
-    lastMsgTime = now;
-    document.getElementById('info-count').textContent = msgCount;
-
-    try {
-      const data = JSON.parse(e.data);
-      handleMessage(data);
-    } catch {
-      addLog('evt', e.data);
-    }
-  };
-
-  ws.onclose = () => {
-    setBadge('disconnected');
-    addLog('err', 'WebSocket fermé');
-    document.getElementById('st-status').textContent = 'OFFLINE';
-  };
-
-  ws.onerror = () => {
-    setBadge('disconnected');
-    addLog('err', 'Erreur WebSocket');
-  };
+  ws.onopen    = () => { setBadge('connected'); addLog('c-green', 'WebSocket connecté ✓'); checkAPI(); };
+  ws.onmessage = onMessage;
+  ws.onclose   = () => { setBadge('disconnected'); addLog('c-red', 'WebSocket fermé'); };
+  ws.onerror   = () => { setBadge('disconnected'); addLog('c-red', 'Erreur WebSocket'); };
 }
 
-function disconnect() {
-  if (ws) { ws.close(); ws = null; }
+function disconnect() { if (ws) { ws.close(); ws = null; } }
+
+function onMessage(e) {
+  msgCount++;
+  const now = performance.now();
+  if (lastMsgTime) set('info-latency', (now - lastMsgTime).toFixed(0) + ' ms');
+  lastMsgTime = now;
+  set('info-count', msgCount);
+  try { handleMessage(JSON.parse(e.data)); }
+  catch { addLog('c-muted', e.data); }
 }
 
-function handleMessage(data) {
-  // Format attendu du ws_bridge.py :
-  // { "type": "detect",    "label": "person", "conf": 0.72 }
-  // { "type": "udp_sent",  "msg": "STEAM_DETECT_PERSON", "ip": "..." }
-  // { "type": "audio",     "file": "detection.mp3" }
-  // { "type": "heartbeat", "msg": "STEAM_RUN_OK" }
-  // { "type": "udp_rx",    "msg": "RESET", "from": "192.168.1.x" }
+// ── Event handlers ────────────────────────────────────────────────
+function handleMessage(d) {
+  switch (d.type) {
 
-  switch (data.type) {
-    case 'detect':
-      document.getElementById('st-label').textContent = data.label;
-      document.getElementById('st-conf').textContent  = (data.conf * 100).toFixed(1) + '%';
-      addLog('det', `DETECT ${data.label}  conf=${(data.conf*100).toFixed(1)}%`);
+    case 'card_detected': {
+      const id = d.card_id;
+      const sc = (d.score * 100).toFixed(1);
+      set('st-label', d.label || id);
+      set('st-score', sc + '%');
+      // Update plate card
+      if (plateStat[id] !== undefined) {
+        plateStat[id].count++;
+        plateStat[id].lastScore = d.score;
+        plateStat[id].lastTime  = ts();
+        const scoreEl = document.getElementById('ps-score-' + id);
+        if (scoreEl) { scoreEl.textContent = sc + '%'; scoreEl.className = 'plate-score'; }
+        set('ps-count-' + id, plateStat[id].count + ' trigger(s)');
+        set('ps-time-'  + id, ts());
+        flashPlate(id);
+      }
+      addLog('c-cyan', `CARTE  ${d.label || id}  score=${sc}%`);
       break;
-    case 'udp_sent':
-      document.getElementById('st-udp').textContent = `${data.msg} → ${data.ip}`;
-      addLog('udp', `UDP→Loxone : ${data.msg}`);
+    }
+
+    case 'state': {
+      const box = document.getElementById('state-box');
+      if (box) { box.textContent = d.state; box.className = 'state-box ' + d.state; }
+      addLog('c-green', `STATE → ${d.state}`);
       break;
+    }
+
+    case 'count':
+      set('st-count', d.value + ' personne(s)');
+      break;
+
+    case 'movement':
+      if (d.speed > 2)
+        set('st-move', `${d.direction}  (${d.speed.toFixed(1)} px/f)`);
+      break;
+
     case 'audio':
-      document.getElementById('st-audio').textContent = `▶ ${data.file}`;
-      addLog('evt', `Audio : ${data.file}`);
+      set('st-audio', `▶ ${d.card || ''}${d.subdir ? ' / ' + d.subdir : ''}`);
+      addLog('c-purple', `AUDIO  ${d.card || ''}${d.subdir ? ' [' + d.subdir + ']' : ''}`);
       break;
-    case 'heartbeat':
-      document.getElementById('st-heart').textContent = `${ts()} — ${data.msg}`;
+
+    case 'video':
+      set('st-video', `▶ ${d.card || ''}${d.subdir ? ' / ' + d.subdir : ''}`);
+      addLog('c-yellow', `VIDEO  ${d.card || ''}${d.subdir ? ' [' + d.subdir + ']' : ''}`);
       break;
+
+    case 'image':
+      addLog('c-yellow', `IMAGE  ${d.card || ''}${d.subdir ? ' [' + d.subdir + ']' : ''}`);
+      break;
+
+    case 'udp_sent': {
+      const dest = d.ip ? `${d.ip}:${d.port || ''}` : '';
+      set('st-udp', d.msg);
+      addUDP('out', d.msg, dest);
+      break;
+    }
+
     case 'udp_rx':
-      addLog('udp', `UDP←${data.from} : ${data.msg}`);
+      addUDP('in', d.msg, d.from || '');
+      addLog('c-orange', `UDP← ${d.from || '?'} : ${d.msg}`);
       break;
+
+    case 'heartbeat': {
+      const hbEl = document.getElementById('st-heart');
+      if (hbEl) hbEl.textContent = ts();
+      const hbBadge = document.getElementById('hb-badge');
+      if (hbBadge) { hbBadge.style.color = 'var(--green)'; hbBadge.textContent = '⬤ ' + ts(); }
+      break;
+    }
+
     default:
-      addLog('evt', JSON.stringify(data));
+      addLog('c-muted', JSON.stringify(d));
   }
+}
+
+// ── Rule API ─────────────────────────────────────────────────────
+function apiBase() {
+  const host = document.getElementById('ws-host').value.trim();
+  return `http://${host}:8890`;
+}
+
+async function checkAPI() {
+  try {
+    const r = await fetch(apiBase() + '/status', { signal: AbortSignal.timeout(2000) });
+    const d = await r.json();
+    set('st-api', `✓  ${d.rules ?? '?'} règles`);
+  } catch {
+    set('st-api', '✗ indisponible');
+  }
+}
+
+async function reloadRules() {
+  try {
+    const r = await fetch(apiBase() + '/reload', { method: 'POST' });
+    const d = await r.json();
+    addLog('c-green', `Rules rechargées — ${d.rules ?? ''} règles`);
+    set('st-api', `✓  ${d.rules ?? '?'} règles`);
+  } catch(e) { addLog('c-red', 'Reload échoué : ' + e); }
+}
+
+function openRuleEditor() {
+  window.open(apiBase() + '/', '_blank');
+}
+
+async function testCard() {
+  const cardId = document.getElementById('test-card-sel').value;
+  try {
+    await fetch(apiBase() + '/test_card', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ card_id: cardId })
+    });
+    addLog('c-cyan', `TEST injecté → ${cardId}`);
+  } catch(e) { addLog('c-red', 'Test échoué (rule_api hors ligne ?) : ' + e); }
+}
+
+async function testUDP() {
+  const msg  = document.getElementById('udp-test-msg').value.trim() || 'STEAM_TEST';
+  const host = document.getElementById('ws-host').value.trim();
+  try {
+    await fetch(apiBase() + '/test_udp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ msg, ip: host, port: 7777 })
+    });
+    addLog('c-orange', `UDP test envoyé → ${host}:7777  ${msg}`);
+  } catch(e) { addLog('c-red', 'UDP test échoué : ' + e); }
 }
 </script>
 </body>

@@ -73,19 +73,18 @@ class VideoPlayer:
 
     # ── Interne ───────────────────────────────────────────────────
     def _launch(self, path: Path, blocking: bool):
+        import os
         self.stop()
         cmd = self._build_cmd(path)
+        env = {**os.environ, "DISPLAY": ":0"}
         with self._lock:
-            # Variables d'env pour HDMI headless sur Pi
-            env_extra = {"DISPLAY": ":0"}
-            import os
-            env = {**os.environ, **env_extra}
             self._proc = subprocess.Popen(cmd, env=env,
                                           stdout=subprocess.DEVNULL,
                                           stderr=subprocess.DEVNULL)
+            proc = self._proc   # référence locale (race condition safe)
         print(f"[video] >> {path.name}  (via {self._player})")
         if blocking:
-            self._proc.wait()
+            proc.wait()
 
     def _build_cmd(self, path: Path) -> list[str]:
         if self._player == "mpv":
@@ -112,5 +111,6 @@ class VideoPlayer:
                 "--fullscreen",
                 "--intf", "dummy",
                 "--play-and-exit",
+                "--no-audio",          # audio géré séparément par AudioPlayer
                 str(path),
             ]
