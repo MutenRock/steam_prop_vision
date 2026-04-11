@@ -6,7 +6,7 @@
 pipeline_mode: "card"
 
 # ── Mode carte ────────────────────────────────────────────────────
-card_hold_ms: 2000          # ms de maintien de la carte avant déclenchement
+card_hold_ms: 1000          # ms de maintien de la carte avant déclenchement
 idle_after_s: 3.0           # secondes avant retour en IDLE après trigger
 
 # ── Mode person (ignoré si pipeline_mode=card) ───────────────────
@@ -16,7 +16,8 @@ persist_after_loss: 5.0     # persistance joueur après disparition
 # ── Détection carte ───────────────────────────────────────────────
 card_min_area: 4000         # aire minimale du losange (px)
 card_min_matches: 12        # keypoints ORB minimum pour valider
-card_score_threshold: 0.08
+card_score_threshold: 0.20  # score minimum ORB (0.0–1.0)
+card_consec_frames: 5       # nb de frames consécutives pour confirmer la carte
 
 # ── Features optionnelles ─────────────────────────────────────────
 enable_heartbeat: true      # UDP heartbeat toutes les 5s (broadcast LAN)

@@ -112,11 +112,12 @@ def run_actions(cfg, rule_engine, label_or_result, audio, video, card_id=None):
 # ══════════════════════════════════════════════════════════════════
 
 def run_card_mode(cfg, cam, rule_engine, audio, video):
-    card_hold_ms   = cfg.get("card_hold_ms",   2000)
-    idle_after_s   = cfg.get("idle_after_s",   3.0)
-    card_min_area  = cfg.get("card_min_area",  4000)
-    card_min_match = cfg.get("card_min_matches", 12)
-    card_threshold = cfg.get("card_score_threshold", 0.08)
+    card_hold_ms    = cfg.get("card_hold_ms",          1000)
+    idle_after_s    = cfg.get("idle_after_s",           3.0)
+    card_min_area   = cfg.get("card_min_area",         4000)
+    card_min_match  = cfg.get("card_min_matches",        12)
+    card_threshold  = cfg.get("card_score_threshold",  0.20)
+    consec_required = cfg.get("card_consec_frames",       5)
 
     fast_detector = FastDetector(min_area=card_min_area)
     card_detector = CardDetector()
@@ -126,11 +127,14 @@ def run_card_mode(cfg, cam, rule_engine, audio, video):
 
     state          = State.IDLE
     last_triggered = 0.0
-    hold_card_id   = None     # carte en cours de maintien
-    hold_start     = 0.0      # timestamp de la première détection continue
+    hold_card_id   = None     # carte confirmée en cours de hold
+    hold_start     = 0.0      # timestamp début du hold
+    consec_card_id = None     # carte vue en frames consécutives
+    consec_count   = 0        # compteur frames consécutives
     frame_count    = 0
 
-    print("[card] Pipeline card — IDLE (hold=" + str(card_hold_ms) + "ms)")
+    print("[card] Pipeline card — IDLE (hold=" + str(card_hold_ms) +
+          "ms, consec=" + str(consec_required) + ")")
     push_event({"type": "state", "state": "IDLE"})
 
     running = True
@@ -140,6 +144,13 @@ def run_card_mode(cfg, cam, rule_engine, audio, video):
         print("[stop] Arret propre...")
     signal.signal(signal.SIGINT,  _stop)
     signal.signal(signal.SIGTERM, _stop)
+
+    def _reset_detection():
+        nonlocal hold_card_id, hold_start, consec_card_id, consec_count
+        hold_card_id   = None
+        hold_start     = 0.0
+        consec_card_id = None
+        consec_count   = 0
 
     while running:
         frame = cam.capture_array()
@@ -152,13 +163,11 @@ def run_card_mode(cfg, cam, rule_engine, audio, video):
 
         # ── STANDBY : vidéo en cours, aucune détection ────────
         if state == State.STANDBY:
-            elapsed     = now - last_triggered
-            video_done  = not video.is_playing()
-            # Attendre fin de vidéo ET minimum idle_after_s (fallback si pas de vidéo)
+            elapsed    = now - last_triggered
+            video_done = not video.is_playing()
             if video_done and elapsed >= idle_after_s:
-                state        = State.IDLE
-                hold_card_id = None
-                hold_start   = 0.0
+                state = State.IDLE
+                _reset_detection()
                 print("[state] -> IDLE")
                 push_event({"type": "state", "state": "IDLE"})
             continue
@@ -166,49 +175,57 @@ def run_card_mode(cfg, cam, rule_engine, audio, video):
         # ── L1 : détection losange ────────────────────────────
         quad = fast_detector.detect(frame)
         if quad is None:
-            if hold_card_id is not None:
-                hold_card_id = None
-                hold_start   = 0.0
+            if consec_card_id is not None:
+                _reset_detection()
             continue
 
         # ── L2 : matching ORB sur ROI ─────────────────────────
         roi    = quad.crop(frame)
         region = card_detector.detect(roi)
         if region is None:
-            if hold_card_id is not None:
-                hold_card_id = None
-                hold_start   = 0.0
+            if consec_card_id is not None:
+                _reset_detection()
             continue
 
         # ── L3 : confirmation ─────────────────────────────────
         result = recognizer.recognize(region.warped)
         if result is None:
-            if hold_card_id is not None:
-                hold_card_id = None
-                hold_start   = 0.0
+            if consec_card_id is not None:
+                _reset_detection()
             continue
 
-        # ── Hold timer ────────────────────────────────────────
-        if result.card_id != hold_card_id:
-            # Nouvelle carte : démarre le timer
+        # ── Compteur frames consécutives ──────────────────────
+        if result.card_id != consec_card_id:
+            consec_card_id = result.card_id
+            consec_count   = 1
+            hold_card_id   = None   # réinitialise le hold si carte change
+            hold_start     = 0.0
+            continue                # pas encore confirmée
+
+        consec_count += 1
+        if consec_count < consec_required:
+            continue                # en attente de confirmation
+
+        # ── Carte confirmée (consec_required frames d'affilée) ─
+        if hold_card_id is None:
+            # Première confirmation : démarre le hold timer
             hold_card_id = result.card_id
             hold_start   = now
             push_event({"type": "card_detected",
                         "card_id": result.card_id,
                         "label":   result.label,
                         "score":   round(result.score, 3)})
-            print("[card] détectée : " + result.label +
-                  "  score=" + str(round(result.score, 3)))
-            continue
+            print("[card] confirmée (" + str(consec_required) + "f) : " +
+                  result.label + "  score=" + str(round(result.score, 3)))
 
+        # ── Hold timer ────────────────────────────────────────
         held_ms = (now - hold_start) * 1000
-        pct = min(100, int(held_ms / card_hold_ms * 100))
-        # Feedback de progression toutes les ~200ms
+        pct     = min(100, int(held_ms / card_hold_ms * 100))
         push_event({"type": "hold",
-                    "card_id": result.card_id,
-                    "label":   result.label,
-                    "pct":     pct,
-                    "held_ms": int(held_ms),
+                    "card_id":   result.card_id,
+                    "label":     result.label,
+                    "pct":       pct,
+                    "held_ms":   int(held_ms),
                     "target_ms": card_hold_ms})
 
         if held_ms < card_hold_ms:
@@ -222,8 +239,7 @@ def run_card_mode(cfg, cam, rule_engine, audio, video):
         run_actions(cfg, rule_engine, result, audio, video)
         state          = State.STANDBY
         last_triggered = now
-        hold_card_id   = None
-        hold_start     = 0.0
+        _reset_detection()
         print("[state] -> STANDBY (" + str(idle_after_s) + "s)")
 
     print("[stop] " + str(frame_count) + " frames traitees.")
