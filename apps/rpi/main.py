@@ -48,8 +48,8 @@ def load_config():
 
 
 class State(Enum):
-    IDLE      = auto()
-    TRIGGERED = auto()
+    IDLE    = auto()
+    STANDBY = auto()   # vidéo en cours — aucune détection
 
 
 # ── Helpers ───────────────────────────────────────────────────────
@@ -150,9 +150,12 @@ def run_card_mode(cfg, cam, rule_engine, audio, video):
         frame_count += 1
         now = time.time()
 
-        # ── Retour IDLE après trigger ─────────────────────────
-        if state == State.TRIGGERED:
-            if now - last_triggered >= idle_after_s:
+        # ── STANDBY : vidéo en cours, aucune détection ────────
+        if state == State.STANDBY:
+            elapsed     = now - last_triggered
+            video_done  = not video.is_playing()
+            # Attendre fin de vidéo ET minimum idle_after_s (fallback si pas de vidéo)
+            if video_done and elapsed >= idle_after_s:
                 state        = State.IDLE
                 hold_card_id = None
                 hold_start   = 0.0
@@ -199,12 +202,14 @@ def run_card_mode(cfg, cam, rule_engine, audio, video):
             continue
 
         held_ms = (now - hold_start) * 1000
-        # Feedback de progression toutes les ~500ms
-        if int(held_ms / 500) > int((held_ms - 50) / 500):
-            pct = min(100, int(held_ms / card_hold_ms * 100))
-            print("[hold] " + result.label +
-                  "  " + str(int(held_ms)) + "ms / " +
-                  str(card_hold_ms) + "ms  (" + str(pct) + "%)")
+        pct = min(100, int(held_ms / card_hold_ms * 100))
+        # Feedback de progression toutes les ~200ms
+        push_event({"type": "hold",
+                    "card_id": result.card_id,
+                    "label":   result.label,
+                    "pct":     pct,
+                    "held_ms": int(held_ms),
+                    "target_ms": card_hold_ms})
 
         if held_ms < card_hold_ms:
             continue
@@ -213,13 +218,13 @@ def run_card_mode(cfg, cam, rule_engine, audio, video):
         print("[TRIGGER] " + result.label +
               "  score=" + str(round(result.score, 3)) +
               "  hold=" + str(int(held_ms)) + "ms")
-        push_event({"type": "state", "state": "TRIGGERED"})
+        push_event({"type": "state", "state": "STANDBY"})
         run_actions(cfg, rule_engine, result, audio, video)
-        state          = State.TRIGGERED
+        state          = State.STANDBY
         last_triggered = now
         hold_card_id   = None
         hold_start     = 0.0
-        print("[state] -> TRIGGERED (" + str(idle_after_s) + "s)")
+        print("[state] -> STANDBY (" + str(idle_after_s) + "s)")
 
     print("[stop] " + str(frame_count) + " frames traitees.")
 
@@ -272,7 +277,7 @@ def run_person_mode(cfg, cam, rule_engine, audio, video):
         frame_count += 1
         now = time.time()
 
-        if state == State.TRIGGERED:
+        if state == State.STANDBY:
             if now - last_triggered >= idle_after_s:
                 state = State.IDLE
                 tracker.reset()
@@ -290,11 +295,11 @@ def run_person_mode(cfg, cam, rule_engine, audio, video):
         if ts.ready_for_inspect and state == State.IDLE:
             print("[person] Joueur détecté depuis " +
                   str(round(ts.presence_elapsed, 1)) + "s -> TRIGGER")
-            push_event({"type": "state", "state": "TRIGGERED"})
+            push_event({"type": "state", "state": "STANDBY"})
             run_actions(cfg, rule_engine, "person", audio, video)
-            state          = State.TRIGGERED
+            state          = State.STANDBY
             last_triggered = now
-            print("[state] -> TRIGGERED (" + str(idle_after_s) + "s)")
+            print("[state] -> STANDBY (" + str(idle_after_s) + "s)")
 
     print("[stop] " + str(frame_count) + " frames traitees.")
 

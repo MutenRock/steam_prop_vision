@@ -116,10 +116,15 @@ button.danger { border-color: var(--red); color: var(--red); }
   letter-spacing: 4px;
   transition: background .3s, color .3s;
 }
-.state-box.IDLE       { background: #1a1a1a; color: var(--muted); border: 2px solid #333; }
-.state-box.INSPECTION { background: #2a1f00; color: var(--orange); border: 2px solid var(--orange); }
-.state-box.TRIGGERED  { background: #002a08; color: var(--green);  border: 2px solid var(--green);
+.state-box.IDLE     { background: #1a1a1a; color: var(--muted);  border: 2px solid #333; }
+.state-box.STANDBY  { background: #001a2a; color: var(--cyan);   border: 2px solid var(--cyan);
+  box-shadow: 0 0 20px rgba(0,221,255,.2); animation: pulse-cyan 2s ease-in-out infinite; }
+.state-box.TRIGGERED { background: #002a08; color: var(--green); border: 2px solid var(--green);
   box-shadow: 0 0 20px rgba(76,175,80,.3); }
+@keyframes pulse-cyan {
+  0%,100% { box-shadow: 0 0 10px rgba(0,221,255,.15); }
+  50%      { box-shadow: 0 0 28px rgba(0,221,255,.4); }
+}
 
 /* ── Plates grid ─────────────────────────────────────────────── */
 .plates-grid {
@@ -210,6 +215,16 @@ button.danger { border-color: var(--red); color: var(--red); }
   <div class="card" style="grid-row: span 2">
     <div class="card-title">Pipeline</div>
     <div id="state-box" class="state-box IDLE">IDLE</div>
+    <!-- Barre de hold -->
+    <div id="hold-bar-wrap" style="display:none;margin-bottom:8px">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:3px">
+        Hold <span id="hold-pct">0</span>%
+        — <span id="hold-card-name" style="color:var(--cyan)"></span>
+      </div>
+      <div style="background:#222;border-radius:4px;height:6px;overflow:hidden">
+        <div id="hold-bar" style="height:100%;width:0%;background:var(--cyan);transition:width .15s linear;border-radius:4px"></div>
+      </div>
+    </div>
     <div class="row"><span class="lbl">Personnes</span><span class="val" id="st-count">—</span></div>
     <div class="row"><span class="lbl">Mouvement</span><span class="val" id="st-move">—</span></div>
     <div class="row"><span class="lbl">Dernière carte</span><span class="val c-cyan" id="st-label">—</span></div>
@@ -371,6 +386,18 @@ function onMessage(e) {
 function handleMessage(d) {
   switch (d.type) {
 
+    case 'hold': {
+      const w = document.getElementById('hold-bar-wrap');
+      const b = document.getElementById('hold-bar');
+      const p = document.getElementById('hold-pct');
+      const n = document.getElementById('hold-card-name');
+      if (w) w.style.display = 'block';
+      if (b) b.style.width = d.pct + '%';
+      if (p) p.textContent = d.pct;
+      if (n) n.textContent = d.label || d.card_id;
+      break;
+    }
+
     case 'card_detected': {
       const id = d.card_id;
       const sc = (d.score * 100).toFixed(1);
@@ -394,6 +421,13 @@ function handleMessage(d) {
     case 'state': {
       const box = document.getElementById('state-box');
       if (box) { box.textContent = d.state; box.className = 'state-box ' + d.state; }
+      // Cacher la barre de hold dès que la carte est validée ou en IDLE
+      if (d.state === 'STANDBY' || d.state === 'IDLE') {
+        const w = document.getElementById('hold-bar-wrap');
+        const b = document.getElementById('hold-bar');
+        if (w) w.style.display = 'none';
+        if (b) b.style.width = '0%';
+      }
       addLog('c-green', `STATE → ${d.state}`);
       break;
     }

@@ -50,6 +50,12 @@ if _OK:
         html_path = _HERE / "rule_editor" / "index.html"
         return html_path.read_text(encoding="utf-8")
 
+    @app.get("/monitor", response_class=HTMLResponse)
+    def monitor_dashboard():
+        """Dashboard admin WebSocket — accessible sur http://<ip>:8890/monitor"""
+        html_path = _HERE / "index.html"
+        return html_path.read_text(encoding="utf-8")
+
     # ── Rules CRUD ────────────────────────────────────────────────────
     @app.get("/rules")
     def get_rules():
@@ -142,7 +148,8 @@ def start_in_thread(port: int = 8890, engine=None) -> threading.Thread | None:
         uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
     t = threading.Thread(target=run, daemon=True, name="rule-api")
     t.start()
-    print(f"[rule_api] Rule editor  →  http://0.0.0.0:{port}")
+    print(f"[rule_api] Dashboard    →  http://0.0.0.0:{port}/monitor")
+    print(f"[rule_api] Rule editor  →  http://0.0.0.0:{port}/")
     return t
 
 
