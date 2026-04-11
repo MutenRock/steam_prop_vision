@@ -35,7 +35,7 @@ class AudioPlayer:
     def play_random(self, subdir: str = "", blocking: bool = False) -> bool:
         folder = self.assets_dir / subdir if subdir else self.assets_dir
         candidates = [
-            p for p in folder.iterdir()
+            p for p in folder.rglob("*")
             if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS
         ] if folder.exists() else []
         if not candidates:

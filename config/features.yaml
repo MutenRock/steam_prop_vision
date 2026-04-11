@@ -1,35 +1,41 @@
-# S.T.E.A.M Features — editable ici ou via tools/feature_gui.py
+# S.T.E.A.M Features — éditable ici ou via tools/feature_gui.py
 
-# Pipeline principale
-require_person: true          # valider qu un joueur est present avant de trigger
-card_first: true              # scanner la carte EN PREMIER, personne = validation
-persist_after_loss: 5.0       # secondes de persistance apres disparition joueur
-person_duration: 2.0          # secondes de presence avant inspection (si card_first=false)
-inspect_timeout: 15.0
-card_cooldown: 8.0
+# ── Mode pipeline ─────────────────────────────────────────────────
+# "card"   : scan continu de la carte → hold 2s → vidéo + UDP   (défaut STYX)
+# "person" : YOLO détecte joueur X secondes → joue un MP3
+pipeline_mode: "card"
 
-# Detection carte
-card_min_area: 1500           # aire minimale du losange en px
-card_min_matches: 12          # keypoints ORB minimum pour valider
-card_score_threshold: 0.08
+# ── Mode carte ────────────────────────────────────────────────────
+card_hold_ms: 1000          # ms de maintien de la carte avant déclenchement
+idle_after_s: 3.0           # secondes avant retour en IDLE après trigger
 
-# Features optionnelles
-enable_movement_tracking: true  # suivi deplacement joueur
-enable_person_count: true       # log nombre joueurs dans le champ
-enable_heartbeat: true          # UDP heartbeat toutes les 5s
-enable_monitor: true            # WebSocket monitor ws://0.0.0.0:8889
-enable_audio: true              # lecture audio sur detection
-enable_video: true              # lecture video sur detection
+# ── Mode person (ignoré si pipeline_mode=card) ───────────────────
+person_duration: 2.0        # secondes de présence continue pour déclencher
+persist_after_loss: 5.0     # persistance joueur après disparition
 
-# Loxone / UDP
+# ── Détection carte ───────────────────────────────────────────────
+card_min_area: 4000         # aire minimale du losange (px)
+card_min_matches: 12        # keypoints ORB minimum pour valider
+card_score_threshold: 0.20  # score minimum ORB (0.0–1.0)
+card_consec_frames: 5       # nb de frames consécutives pour confirmer la carte
+
+# ── Features optionnelles ─────────────────────────────────────────
+enable_heartbeat: true      # UDP heartbeat toutes les 5s (broadcast LAN)
+enable_monitor: true        # WebSocket monitor  ws://0.0.0.0:8889
+enable_rule_api: true       # Rule editor HTTP   http://0.0.0.0:8890
+enable_audio: true          # lecture audio sur détection
+enable_video: true          # lecture vidéo sur détection
+
+# ── Loxone / UDP ──────────────────────────────────────────────────
 loxone_ip: "192.168.1.50"
 loxone_port: 7777
+udp_listen_port: 8888       # port d'écoute des ACK / commandes entrants
 
-# Camera
+# ── Caméra ────────────────────────────────────────────────────────
 camera_width: 1280
 camera_height: 720
 
-# YOLO
+# ── YOLO (mode person uniquement) ────────────────────────────────
 yolo_model: "yolov8n.pt"
 yolo_imgsz: 320
 yolo_conf: 0.5

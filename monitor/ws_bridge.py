@@ -38,8 +38,15 @@ async def _handler(websocket):
 
 async def _broadcaster():
     global _clients
+    import time
+    last_hb = 0.0
     while True:
         await asyncio.sleep(0.05)
+        # Heartbeat autonome toutes les 5s (indépendant du pipeline)
+        now = time.monotonic()
+        if now - last_hb >= 5.0:
+            last_hb = now
+            _event_queue.put_nowait({"type": "heartbeat", "msg": "STEAM_RUN_OK"})
         msgs = []
         try:
             while True:

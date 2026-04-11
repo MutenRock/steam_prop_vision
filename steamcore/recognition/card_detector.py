@@ -15,8 +15,8 @@ def _find_images(directory: Path) -> list:
     exts = ["*.jpg", "*.jpeg", "*.png", "*.JPG", "*.JPEG", "*.PNG", "*.webp"]
     imgs = []
     for ext in exts:
-        imgs.extend(directory.glob(ext))
-    return imgs
+        imgs.extend(directory.rglob(ext))   # récursif : trouve images/ sous-dossier
+    return [p for p in imgs if not p.name.startswith(".")]
 
 
 @dataclass

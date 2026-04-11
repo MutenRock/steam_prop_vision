@@ -25,7 +25,7 @@ except ImportError:
 
 @dataclass
 class ActionDef:
-    type: str                     # audio | video | udp | http
+    type: str                     # audio | video | image | udp | http
     subdir: str = ""
     message: str = ""
     url: str = ""

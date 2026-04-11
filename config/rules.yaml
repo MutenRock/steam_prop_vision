@@ -1,25 +1,29 @@
-# rules.yaml — S.T.E.A.M Vision : règles de détection
-# Chaque label YOLO peut avoir ses propres actions et paramètres.
+# rules.yaml — S.T.E.A.M Vision : règles de déclenchement
 #
-# enabled      : true/false — activer/désactiver le label
-# cooldown     : secondes entre deux déclenchements du même label
-# min_duration : secondes de détection continue avant déclenchement (0 = immédiat)
-# actions      : liste d'actions à exécuter lors du déclenchement
-#   - type: audio        → joue un fichier aléatoire dans assets/audio/<subdir>
-#   - type: video        → joue une vidéo fullscreen depuis assets/video/<subdir>
-#   - type: udp          → envoie un message UDP à Loxone
-#   - type: http         → fait une requête HTTP GET
+# enabled      : true/false
+# cooldown     : délai minimum entre deux déclenchements (s) — non utilisé en mode card
+# min_duration : durée de détection continue requise (mode person uniquement)
+# actions      : liste d'actions
+#   - type: audio   → assets/audio/<subdir>/  (aléatoire)
+#   - type: video   → assets/video/<subdir>/  (aléatoire, fullscreen)
+#   - type: image   → assets/img/<subdir>/    (aléatoire, fullscreen)
+#   - type: udp     → envoie message UDP à Loxone
+#
+# Structure assets par plaque :
+#   assets/audio/<nom_plaque>/  ← dépose les MP3 ici
+#   assets/video/<nom_plaque>/  ← dépose les MP4 ici
+#   assets/img/<nom_plaque>/    ← dépose les images ici (optionnel)
 
 rules:
+
+  # ── Mode person : joue un son d'ambiance ─────────────────────────
   person:
     enabled: true
     cooldown: 5
     min_duration: 2.0
     actions:
       - type: audio
-        subdir: ""
-      - type: video
-        subdir: ""
+        subdir: ""            # pioche dans assets/audio/ (racine)
       - type: udp
         message: "STEAM_DETECT_PERSON"
 
@@ -31,10 +35,10 @@ rules:
     actions:
       - type: udp
         message: "STEAM_CARD_BOUGIE"
-      - type: audio
-        subdir: ""
       - type: video
-        subdir: ""
+        subdir: "bougie"      # assets/video/bougie/
+      - type: audio
+        subdir: "bougie"      # assets/audio/bougie/
 
   plate_cellule:
     enabled: true
@@ -43,10 +47,10 @@ rules:
     actions:
       - type: udp
         message: "STEAM_CARD_CELLULE"
-      - type: audio
-        subdir: ""
       - type: video
-        subdir: ""
+        subdir: "cellule"
+      - type: audio
+        subdir: "cellule"
 
   plate_chaudron:
     enabled: true
@@ -55,10 +59,10 @@ rules:
     actions:
       - type: udp
         message: "STEAM_CARD_CHAUDRON"
-      - type: audio
-        subdir: ""
       - type: video
-        subdir: ""
+        subdir: "chaudron"
+      - type: audio
+        subdir: "chaudron"
 
   plate_dague:
     enabled: true
@@ -67,10 +71,10 @@ rules:
     actions:
       - type: udp
         message: "STEAM_CARD_DAGUE"
-      - type: audio
-        subdir: ""
       - type: video
-        subdir: ""
+        subdir: "dague"
+      - type: audio
+        subdir: "dague"
 
   plate_vampire:
     enabled: true
@@ -79,28 +83,12 @@ rules:
     actions:
       - type: udp
         message: "STEAM_CARD_VAMPIRE"
-      - type: audio
-        subdir: ""
       - type: video
-        subdir: ""
+        subdir: "vampire"
+      - type: audio
+        subdir: "vampire"
 
-  chair:
-    enabled: false
-    cooldown: 10
-    min_duration: 0
-    actions:
-      - type: udp
-        message: "STEAM_DETECT_CHAIR"
-
-  backpack:
-    enabled: false
-    cooldown: 10
-    min_duration: 0
-    actions:
-      - type: udp
-        message: "STEAM_DETECT_BACKPACK"
-
-# Comportement global par défaut pour les labels non listés
+# Comportement par défaut pour les labels non listés
 default:
   enabled: false
   cooldown: 10
