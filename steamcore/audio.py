@@ -1,13 +1,18 @@
 """
 steamcore/audio.py
-Joue un fichier MP3/WAV via ffplay (déjà installé avec ffmpeg).
-Non-bloquant : lance ffplay dans un subprocess séparé.
+Joue un fichier audio via ffplay (non-bloquant).
+- play(filename)      : joue un fichier precis
+- play_random()       : pioche aleatoirement dans assets/audio/
+- play_random(subdir) : pioche dans assets/audio/<subdir>/
 """
 from __future__ import annotations
 import subprocess
 import threading
 import shutil
+import random
 from pathlib import Path
+
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a"}
 
 
 class AudioPlayer:
@@ -18,39 +23,33 @@ class AudioPlayer:
         self._ffplay = shutil.which("ffplay") or "ffplay"
 
     def play(self, filename: str, blocking: bool = False) -> bool:
-        """
-        Joue un fichier audio.
-        filename : nom du fichier dans assets_dir (ex: 'success.mp3')
-                   ou chemin absolu.
-        blocking : attendre la fin de la lecture (défaut False).
-        Retourne True si lancé, False si fichier introuvable.
-        """
         path = Path(filename)
-        if not path.is_absolute():
+        if not path.is_absolute() and not path.exists():
             path = self.assets_dir / filename
-
         if not path.exists():
-            print(f"[audio] Fichier introuvable : {path}")
+            print(f"[audio] X Fichier introuvable : {path}")
             return False
-
-        self.stop()  # stopper l'audio précédent si en cours
-
-        cmd = [
-            self._ffplay,
-            "-nodisp",          # pas de fenêtre vidéo
-            "-autoexit",        # quitter automatiquement à la fin
-            "-loglevel", "quiet",
-            str(path),
-        ]
-
-        with self._lock:
-            self._proc = subprocess.Popen(cmd)
-
-        if blocking:
-            self._proc.wait()
-
-        print(f"[audio] ▶ {path.name}")
+        self._launch(path, blocking)
         return True
+
+    def play_random(self, subdir: str = "", blocking: bool = False) -> bool:
+        folder = self.assets_dir / subdir if subdir else self.assets_dir
+        candidates = [
+            p for p in folder.iterdir()
+            if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS
+        ] if folder.exists() else []
+        if not candidates:
+            print(f"[audio] X Aucun fichier audio dans : {folder}")
+            return False
+        self._launch(random.choice(candidates), blocking)
+        return True
+
+    def list_files(self, subdir: str = "") -> list[Path]:
+        folder = self.assets_dir / subdir if subdir else self.assets_dir
+        if not folder.exists():
+            return []
+        return [p for p in sorted(folder.iterdir())
+                if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS]
 
     def stop(self):
         with self._lock:
@@ -61,3 +60,13 @@ class AudioPlayer:
     def is_playing(self) -> bool:
         with self._lock:
             return self._proc is not None and self._proc.poll() is None
+
+    def _launch(self, path: Path, blocking: bool):
+        self.stop()
+        cmd = [self._ffplay, "-nodisp", "-autoexit", "-loglevel", "quiet", str(path)]
+        with self._lock:
+            self._proc = subprocess.Popen(cmd)
+            proc = self._proc   # référence locale pour éviter la race condition
+        print(f"[audio] >> {path.name}")
+        if blocking:
+            proc.wait()

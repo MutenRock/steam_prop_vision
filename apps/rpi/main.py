@@ -1,148 +1,299 @@
 """
-apps/rpi/main.py
-Point d'entrée principal S.T.E.A.M sur STYX (Pi 5 headless).
+apps/rpi/main.py -- pipeline pilote par config/features.yaml
 
-Pipeline validé BigEye :
-  Picamera2 1280x720 → YOLO yolov8n.pt imgsz=320
-  → confirmation 3 frames → Audio MP3 + UDP Loxone + Broadcast LAN
+Mode card_first (recommande) :
+  TOUJOURS scanner la carte -> si losange trouve + joueur present -> TRIGGER
 
-Usage :
-  python apps/rpi/main.py
-  python apps/rpi/main.py --loxone 192.168.1.50 --audio assets/audio/success.mp3
+Mode legacy (card_first=false) :
+  Joueur present X secondes -> mode INSPECTION -> scanner carte
 """
 from __future__ import annotations
-import argparse
-import signal
-import sys
-import time
-import threading
+import signal, time, socket, random, subprocess, threading
+from pathlib import Path
+from enum import Enum, auto
 
-from steamcore.camera   import Camera
-from steamcore.detector import YOLODetector
-from steamcore.audio    import AudioPlayer
-from steamcore.udp      import send_event, HeartbeatThread, UDPListener
+import cv2
+import yaml
+from picamera2 import Picamera2
 
+from steamcore.detector                    import YOLODetector
+from steamcore.person_tracker              import PersonTracker, PersonState
+from steamcore.audio                       import AudioPlayer
+from steamcore.video_player                import VideoPlayer
+from steamcore.rules                       import RuleEngine
+from steamcore.udp                         import HeartbeatThread, UDPListener
+from steamcore.recognition.fast_detector   import FastDetector
+from steamcore.recognition.card_detector   import CardDetector
+from steamcore.recognition.card_recognizer import CardRecognizer
+from monitor.ws_bridge                     import start_in_thread as start_ws, push_event
 
-# ── Config par défaut ──────────────────────────────────────────────
-DEFAULT_LOXONE_IP   = "192.168.1.50"   # ← à adapter
-DEFAULT_LOXONE_PORT = 7777
-DEFAULT_AUDIO       = "assets/audio/detection.mp3"
-DEFAULT_MODEL       = "yolov8n.pt"
-IMGSZ               = 320
-CONF_THRESHOLD      = 0.5
-CONFIRM_FRAMES      = 3               # détections consécutives avant trigger
-COOLDOWN_SEC        = 3.0             # délai min entre deux triggers du même label
-# ──────────────────────────────────────────────────────────────────
+CONFIG_FILE = "config/features.yaml"
 
 
-def parse_args():
-    p = argparse.ArgumentParser(description="S.T.E.A.M Vision — STYX")
-    p.add_argument("--loxone",    default=DEFAULT_LOXONE_IP,   help="IP Loxone Miniserver")
-    p.add_argument("--loxport",   default=DEFAULT_LOXONE_PORT, type=int)
-    p.add_argument("--audio",     default=DEFAULT_AUDIO,       help="Fichier audio à jouer")
-    p.add_argument("--model",     default=DEFAULT_MODEL)
-    p.add_argument("--no-udp",    action="store_true",         help="Désactiver l'envoi UDP")
-    p.add_argument("--no-audio",  action="store_true",         help="Désactiver l'audio")
-    p.add_argument("--no-heart",  action="store_true",         help="Désactiver heartbeat broadcast")
-    return p.parse_args()
+def load_config():
+    p = Path(CONFIG_FILE)
+    if not p.exists():
+        print("[config] features.yaml introuvable, valeurs par defaut")
+        return {}
+    with open(p, encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
 
 
-def on_udp_received(msg: str, addr: tuple):
-    print(f"[UDP RX] {addr[0]} → {msg}")
-    # Traiter ici les commandes Loxone : RESET, PAUSE, etc.
-    if msg == "RESET":
-        print("[CMD] Reset reçu — pipeline prêt pour nouveau cycle")
+class State(Enum):
+    IDLE       = auto()
+    INSPECTION = auto()
+    TRIGGERED  = auto()
+
+
+def udp_send(msg, ip, port):
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.sendto(msg.encode(), (ip, port))
+        print("[udp] -> " + ip + ":" + str(port) + " " + msg)
+    except Exception as e:
+        print("[udp] ERREUR : " + str(e))
+
+
+def play_audio(audio):
+    threading.Thread(target=audio.play_random, daemon=True).start()
+
+
+def play_video(video):
+    threading.Thread(target=video.play_random, daemon=True).start()
+
+
+def run_actions(cfg, rule_engine, card_result, audio, video):
+    lox_ip   = cfg.get("loxone_ip",   "192.168.1.50")
+    lox_port = cfg.get("loxone_port", 7777)
+    actions  = rule_engine.get_actions(card_result.card_id)
+    if not actions:
+        # Pas de règle configurée : fallback UDP générique
+        msg = "STEAM_DETECT_" + card_result.card_id.upper()
+        udp_send(msg, lox_ip, lox_port)
+        push_event({"type": "udp_sent", "msg": msg})
+        return
+    for action in actions:
+        if action.type == "audio" and cfg.get("enable_audio", True):
+            threading.Thread(target=audio.play_random,
+                             args=(action.subdir,), daemon=True).start()
+            push_event({"type": "audio", "card": card_result.card_id})
+        elif action.type == "video" and cfg.get("enable_video", True):
+            threading.Thread(target=video.play_random,
+                             args=(action.subdir,), daemon=True).start()
+            push_event({"type": "video", "card": card_result.card_id})
+        elif action.type == "udp":
+            msg = action.message or ("STEAM_DETECT_" + card_result.card_id.upper())
+            udp_send(msg, lox_ip, lox_port)
+            push_event({"type": "udp_sent", "msg": msg})
 
 
 def main():
-    args = parse_args()
+    cfg = load_config()
+
+    lox_ip   = cfg.get("loxone_ip",         "192.168.1.50")
+    lox_port = cfg.get("loxone_port",        7777)
+    card_first      = cfg.get("card_first",         True)
+    require_person  = cfg.get("require_person",     True)
+    person_duration = cfg.get("person_duration",    2.0)
+    persist         = cfg.get("persist_after_loss", 5.0)
+    inspect_timeout = cfg.get("inspect_timeout",    15.0)
+    card_cooldown   = cfg.get("card_cooldown",      8.0)
+    mov_tracking    = cfg.get("enable_movement_tracking", True)
+    count_log       = cfg.get("enable_person_count",      True)
+    heartbeat_on    = cfg.get("enable_heartbeat",         True)
+    monitor_on      = cfg.get("enable_monitor",           True)
+    audio_on        = cfg.get("enable_audio",             True)
 
     print("=" * 55)
-    print("  S.T.E.A.M Vision — STYX  |  Pi 5 headless")
+    print("  S.T.E.A.M Vision - STYX  |  Pi 5")
     print("=" * 55)
-    print(f"  Loxone : {args.loxone}:{args.loxport}")
-    print(f"  Audio  : {args.audio}")
-    print(f"  Modèle : {args.model} imgsz={IMGSZ}")
-    print(f"  Confirm: {CONFIRM_FRAMES} frames consécutives")
+    print("  Mode       : " + ("card_first" if card_first else "legacy (person_first)"))
+    print("  Personne   : " + ("requise" if require_person else "optionnelle"))
+    print("  Persist    : " + str(persist) + "s")
+    print("  Cooldown   : " + str(card_cooldown) + "s")
+    print("  Monitor    : " + ("ON" if monitor_on else "OFF"))
     print()
 
-    # ── Services de fond ───────────────────────────────────────────
-    if not args.no_heart:
-        hb = HeartbeatThread(interval=5.0)
-        hb.start()
+    rule_engine   = RuleEngine("config/rules.yaml")
+    recognizer    = CardRecognizer("PLATEST",
+                                   min_matches=cfg.get("card_min_matches", 12),
+                                   threshold=cfg.get("card_score_threshold", 0.08))
+    fast_detector = FastDetector(min_area=cfg.get("card_min_area", 4000))
+    card_detector = CardDetector()
 
-    listener = UDPListener(on_message=on_udp_received)
-    listener.start()
+    if monitor_on:
+        start_ws()
 
-    # ── Hardware ───────────────────────────────────────────────────
-    cam      = Camera(resolution=(1280, 720))
-    detector = YOLODetector(
-        model_path=args.model,
-        imgsz=IMGSZ,
-        conf=CONF_THRESHOLD,
-        confirm_frames=CONFIRM_FRAMES,
-    )
-    audio    = AudioPlayer()
+    if heartbeat_on:
+        HeartbeatThread(interval=5.0).start()
 
-    print("[init] Démarrage caméra...")
+    UDPListener(on_message=lambda msg, addr: (
+        print("[UDP RX] " + addr[0] + " -> " + msg),
+        push_event({"type": "udp_rx", "msg": msg})
+    )).start()
+
+    cam = Picamera2()
+    cam.configure(cam.create_preview_configuration(
+        main={"format": "RGB888",
+              "size": (cfg.get("camera_width",  1280),
+                       cfg.get("camera_height", 720))}
+    ))
     cam.start()
-    print(f"[init] Caméra OK — backend: {cam.backend}")
+    print("[init] Camera OK")
 
-    # ── Gestion Ctrl+C ─────────────────────────────────────────────
+    detector = YOLODetector(
+        model_path = cfg.get("yolo_model", "yolov8n.pt"),
+        imgsz      = cfg.get("yolo_imgsz", 320),
+        conf       = cfg.get("yolo_conf",  0.5),
+    )
+    tracker = PersonTracker(
+        person_duration    = person_duration,
+        persist_after_loss = persist,
+        grace_frames       = 15,
+    )
+    audio = AudioPlayer("assets/audio")
+    video = VideoPlayer("assets/video")
+
     running = True
-    def shutdown(sig, frame):
+    def _stop(s, f):
         nonlocal running
-        print("\n[stop] Arrêt propre...")
         running = False
-    signal.signal(signal.SIGINT, shutdown)
-    signal.signal(signal.SIGTERM, shutdown)
+        print("[stop] Arret propre...")
+    signal.signal(signal.SIGINT,  _stop)
+    signal.signal(signal.SIGTERM, _stop)
 
-    # ── Cooldown par label ─────────────────────────────────────────
-    last_trigger: dict[str, float] = {}
+    state          = State.IDLE
+    inspect_start  = 0.0
+    last_triggered = 0.0
+    last_count     = 0.0
+    last_move      = 0.0
+    frame_count    = 0
 
-    # ── Pipeline principal ─────────────────────────────────────────
-    print("[run] Pipeline démarré — Ctrl+C pour arrêter\n")
-    frame_count = 0
+    print("[run] Pipeline demarre - IDLE")
+    print()
 
     while running:
-        t0 = time.perf_counter()
-
-        ok, frame = cam.read()
-        if not ok or frame is None:
+        frame = cam.capture_array()
+        if frame is None:
             time.sleep(0.01)
             continue
+        # Picamera2 sort du RGB, tout le pipeline attend du BGR
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
         frame_count += 1
-        detection = detector.process(frame)
+        now = time.time()
 
-        if detection:
-            label = detection.label
-            conf  = detection.confidence
-            now   = time.time()
+        # ── Cooldown apres trigger ────────────────────────────
+        if state == State.TRIGGERED:
+            if now - last_triggered >= card_cooldown:
+                state = State.IDLE
+                tracker.reset()
+                print("[state] -> IDLE")
+                push_event({"type": "state", "state": "IDLE"})
+            continue
 
-            # Cooldown
-            if now - last_trigger.get(label, 0.0) < COOLDOWN_SEC:
+        # ── Detection personnes (toujours) ───────────────────
+        pf = detector.detect_persons(frame)
+        ts = tracker.update(pf)
+
+        if count_log and now - last_count > 3.0 and pf.count > 0:
+            print("[count] " + str(pf.count) + " personne(s)")
+            push_event({"type": "count", "value": pf.count})
+            last_count = now
+
+        if mov_tracking and state == State.INSPECTION and now - last_move > 1.0:
+            mv = ts.movement
+            if mv.speed > 3:
+                print("[move] " + mv.direction + " speed=" + str(round(mv.speed, 1)))
+                push_event({"type": "movement", "direction": mv.direction,
+                            "speed": round(mv.speed, 1)})
+            last_move = now
+
+        # ════════════════════════════════════════════════════
+        # MODE CARD_FIRST (recommande)
+        # Scan carte en continu, personne = validation
+        # ════════════════════════════════════════════════════
+        if card_first:
+            # L1 : détection rapide du losange
+            quad = fast_detector.detect(frame)
+            if quad is None:
                 continue
-            last_trigger[label] = now
 
-            print(f"[DETECT] ✓ {label}  conf={conf:.3f}")
+            # Valider présence joueur si requis
+            if require_person and pf.count == 0:
+                continue
 
-            # Audio
-            if not args.no_audio:
-                audio.play(args.audio)
+            # L2 : matching sur le ROI cropé
+            roi    = quad.crop(frame)
+            region = card_detector.detect(roi)
+            if region is None:
+                continue
 
-            # UDP Loxone
-            if not args.no_udp:
-                msg = f"STEAM_DETECT_{label.upper()}"
-                send_event(msg, args.loxone, args.loxport)
+            # L3 : confirmation ORB
+            result = recognizer.recognize(region.warped)
+            if result is None:
+                continue
 
-        elapsed = time.perf_counter() - t0
-        # Pas de sleep — on tourne à la vitesse du pipeline (~15 FPS)
+            print("[CARD] ok " + result.label + " score=" + str(round(result.score, 3)))
+            push_event({"type": "card_detected", "card_id": result.card_id,
+                        "label": result.label, "score": result.score})
+            run_actions(cfg, rule_engine, result, audio, video)
+            state          = State.TRIGGERED
+            last_triggered = now
+            print("[state] -> TRIGGERED (" + str(card_cooldown) + "s)")
+            push_event({"type": "state", "state": "TRIGGERED"})
+            continue
 
-    # ── Cleanup ────────────────────────────────────────────────────
+        # ════════════════════════════════════════════════════
+        # MODE LEGACY (person_first)
+        # ════════════════════════════════════════════════════
+        if state == State.IDLE:
+            if ts.ready_for_inspect:
+                state         = State.INSPECTION
+                inspect_start = now
+                print("[state] -> INSPECTION")
+                push_event({"type": "state", "state": "INSPECTION"})
+                if audio_on:
+                    play_audio(audio)
+            continue
+
+        if state == State.INSPECTION:
+            if now - inspect_start > inspect_timeout:
+                state = State.IDLE
+                tracker.reset()
+                print("[state] INSPECTION timeout -> IDLE")
+                continue
+            if ts.person_state == PersonState.ABSENT:
+                state = State.IDLE
+                tracker.reset()
+                print("[state] INSPECTION -> IDLE (absent)")
+                continue
+
+            # L1 → L2 → L3
+            quad = fast_detector.detect(frame)
+            if quad is None:
+                continue
+            roi    = quad.crop(frame)
+            region = card_detector.detect(roi)
+            if region is None:
+                continue
+            result = recognizer.recognize(region.warped)
+            if result is None:
+                continue
+
+            print("[CARD] ok " + result.label + " score=" + str(round(result.score, 3)))
+            push_event({"type": "card_detected", "card_id": result.card_id,
+                        "label": result.label, "score": result.score})
+            run_actions(cfg, rule_engine, result, audio, video)
+            state          = State.TRIGGERED
+            last_triggered = now
+            print("[state] -> TRIGGERED (" + str(card_cooldown) + "s)")
+            push_event({"type": "state", "state": "TRIGGERED"})
+
     cam.stop()
     audio.stop()
-    print(f"[stop] Pipeline arrêté après {frame_count} frames.")
+    video.stop()
+    print("[stop] " + str(frame_count) + " frames traitees.")
 
 
 if __name__ == "__main__":

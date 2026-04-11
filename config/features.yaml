@@ -1,0 +1,35 @@
+# S.T.E.A.M Features — editable ici ou via tools/feature_gui.py
+
+# Pipeline principale
+require_person: true          # valider qu un joueur est present avant de trigger
+card_first: true              # scanner la carte EN PREMIER, personne = validation
+persist_after_loss: 5.0       # secondes de persistance apres disparition joueur
+person_duration: 2.0          # secondes de presence avant inspection (si card_first=false)
+inspect_timeout: 15.0
+card_cooldown: 8.0
+
+# Detection carte
+card_min_area: 1500           # aire minimale du losange en px
+card_min_matches: 12          # keypoints ORB minimum pour valider
+card_score_threshold: 0.08
+
+# Features optionnelles
+enable_movement_tracking: true  # suivi deplacement joueur
+enable_person_count: true       # log nombre joueurs dans le champ
+enable_heartbeat: true          # UDP heartbeat toutes les 5s
+enable_monitor: true            # WebSocket monitor ws://0.0.0.0:8889
+enable_audio: true              # lecture audio sur detection
+enable_video: true              # lecture video sur detection
+
+# Loxone / UDP
+loxone_ip: "192.168.1.50"
+loxone_port: 7777
+
+# Camera
+camera_width: 1280
+camera_height: 720
+
+# YOLO
+yolo_model: "yolov8n.pt"
+yolo_imgsz: 320
+yolo_conf: 0.5

@@ -1,35 +1,34 @@
 """
 monitor/ws_bridge.py
-Serveur WebSocket léger (port 8889) qui relaie les événements
-du pipeline vers la page monitor/index.html.
-
-Pas de Flask. Dépendance unique : websockets
-  pip install websockets
-
-Usage : lancé automatiquement par apps/rpi/main.py si --monitor actif.
-Ou manuellement : python monitor/ws_bridge.py
+Serveur WebSocket leger (port 8889).
+Fix: _clients utilise set() global + difference_update() pour eviter UnboundLocalError
 """
 from __future__ import annotations
 import asyncio
 import json
 import threading
 import queue
-from typing import Set
 
-import websockets
-
+try:
+    import websockets
+    _WS_AVAILABLE = True
+except ImportError:
+    _WS_AVAILABLE = False
+    print("[ws] WARN: websockets non installe -> pip install websockets")
 
 _event_queue: queue.Queue = queue.Queue()
-_clients: Set = set()
+_clients: set = set()
 _PORT = 8889
 
 
 def push_event(event: dict) -> None:
-    """Appel synchrone depuis le pipeline pour pousser un event."""
-    _event_queue.put_nowait(event)
+    """Appel synchrone depuis le pipeline."""
+    if _WS_AVAILABLE:
+        _event_queue.put_nowait(event)
 
 
 async def _handler(websocket):
+    global _clients
     _clients.add(websocket)
     try:
         await websocket.wait_closed()
@@ -38,6 +37,7 @@ async def _handler(websocket):
 
 
 async def _broadcaster():
+    global _clients
     while True:
         await asyncio.sleep(0.05)
         msgs = []
@@ -54,7 +54,7 @@ async def _broadcaster():
                         await client.send(json.dumps(m))
                 except Exception:
                     dead.add(client)
-            _clients -= dead
+            _clients.difference_update(dead)
 
 
 async def _serve():
@@ -63,8 +63,10 @@ async def _serve():
         await _broadcaster()
 
 
-def start_in_thread() -> threading.Thread:
-    """Lance le serveur WS dans un thread daemon (appel depuis main.py)."""
+def start_in_thread() -> threading.Thread | None:
+    if not _WS_AVAILABLE:
+        print("[ws] Monitor desactive (websockets manquant)")
+        return None
     def run():
         asyncio.run(_serve())
     t = threading.Thread(target=run, daemon=True, name="ws-bridge")

@@ -1,0 +1,11 @@
+cooldown: 8
+created: '2026-04-04'
+description: Vampire avec collier et médaillon
+id: plate_vampire
+images_count: 2
+label: Le Vampire
+notes: ''
+size_cm:
+- 10
+- 10
+trigger_action: STEAM_CARD_VAMPIRE
