@@ -103,7 +103,7 @@ class RuleEngine:
         Gère enabled, cooldown et min_duration.
         """
         label = label.lower()
-        now = now or time.time()
+        now = time.time() if now is None else now
         rule = self.get_rule(label)
 
         if not rule.enabled:
@@ -127,7 +127,7 @@ class RuleEngine:
     def mark_triggered(self, label: str, now: float | None = None) -> None:
         """Appelé après que les actions ont été exécutées."""
         label = label.lower()
-        now = now or time.time()
+        now = time.time() if now is None else now
         self._last_trigger[label] = now
         self._first_seen.pop(label, None)
 

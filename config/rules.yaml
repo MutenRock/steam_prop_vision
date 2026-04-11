@@ -23,6 +23,67 @@ rules:
       - type: udp
         message: "STEAM_DETECT_PERSON"
 
+  # ── Cartes PLATEST ────────────────────────────────────────────────
+  plate_bougie:
+    enabled: true
+    cooldown: 8
+    min_duration: 0
+    actions:
+      - type: udp
+        message: "STEAM_CARD_BOUGIE"
+      - type: audio
+        subdir: ""
+      - type: video
+        subdir: ""
+
+  plate_cellule:
+    enabled: true
+    cooldown: 8
+    min_duration: 0
+    actions:
+      - type: udp
+        message: "STEAM_CARD_CELLULE"
+      - type: audio
+        subdir: ""
+      - type: video
+        subdir: ""
+
+  plate_chaudron:
+    enabled: true
+    cooldown: 8
+    min_duration: 0
+    actions:
+      - type: udp
+        message: "STEAM_CARD_CHAUDRON"
+      - type: audio
+        subdir: ""
+      - type: video
+        subdir: ""
+
+  plate_dague:
+    enabled: true
+    cooldown: 8
+    min_duration: 0
+    actions:
+      - type: udp
+        message: "STEAM_CARD_DAGUE"
+      - type: audio
+        subdir: ""
+      - type: video
+        subdir: ""
+
+  plate_vampire:
+    enabled: true
+    cooldown: 8
+    min_duration: 0
+    actions:
+      - type: udp
+        message: "STEAM_CARD_VAMPIRE"
+      - type: audio
+        subdir: ""
+      - type: video
+        subdir: ""
+
   chair:
     enabled: false
     cooldown: 10
@@ -38,19 +99,6 @@ rules:
     actions:
       - type: udp
         message: "STEAM_DETECT_BACKPACK"
-
-  # Modèle custom : ex. plaque d'immatriculation (à entraîner)
-  plate:
-    enabled: false
-    cooldown: 3
-    min_duration: 0
-    actions:
-      - type: audio
-        subdir: "plates"
-      - type: udp
-        message: "STEAM_DETECT_PLATE"
-      - type: http
-        url: "http://192.168.1.50/trigger/plate"
 
 # Comportement global par défaut pour les labels non listés
 default:

@@ -66,6 +66,7 @@ class AudioPlayer:
         cmd = [self._ffplay, "-nodisp", "-autoexit", "-loglevel", "quiet", str(path)]
         with self._lock:
             self._proc = subprocess.Popen(cmd)
+            proc = self._proc   # référence locale pour éviter la race condition
         print(f"[audio] >> {path.name}")
         if blocking:
-            self._proc.wait()
+            proc.wait()

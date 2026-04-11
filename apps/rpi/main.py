@@ -12,6 +12,7 @@ import signal, time, socket, random, subprocess, threading
 from pathlib import Path
 from enum import Enum, auto
 
+import cv2
 import yaml
 from picamera2 import Picamera2
 
@@ -20,7 +21,8 @@ from steamcore.person_tracker              import PersonTracker, PersonState
 from steamcore.audio                       import AudioPlayer
 from steamcore.video_player                import VideoPlayer
 from steamcore.rules                       import RuleEngine
-from steamcore.udp                         import send_event, HeartbeatThread, UDPListener
+from steamcore.udp                         import HeartbeatThread, UDPListener
+from steamcore.recognition.fast_detector   import FastDetector
 from steamcore.recognition.card_detector   import CardDetector
 from steamcore.recognition.card_recognizer import CardRecognizer
 from monitor.ws_bridge                     import start_in_thread as start_ws, push_event
@@ -65,19 +67,22 @@ def run_actions(cfg, rule_engine, card_result, audio, video):
     lox_port = cfg.get("loxone_port", 7777)
     actions  = rule_engine.get_actions(card_result.card_id)
     if not actions:
-        udp_send(card_result.action, lox_ip, lox_port)
-        push_event({"type": "udp_sent", "msg": card_result.action})
+        # Pas de règle configurée : fallback UDP générique
+        msg = "STEAM_DETECT_" + card_result.card_id.upper()
+        udp_send(msg, lox_ip, lox_port)
+        push_event({"type": "udp_sent", "msg": msg})
         return
     for action in actions:
         if action.type == "audio" and cfg.get("enable_audio", True):
-            audio.play_random(action.subdir)
+            threading.Thread(target=audio.play_random,
+                             args=(action.subdir,), daemon=True).start()
             push_event({"type": "audio", "card": card_result.card_id})
         elif action.type == "video" and cfg.get("enable_video", True):
             threading.Thread(target=video.play_random,
                              args=(action.subdir,), daemon=True).start()
             push_event({"type": "video", "card": card_result.card_id})
         elif action.type == "udp":
-            msg = action.message or card_result.action
+            msg = action.message or ("STEAM_DETECT_" + card_result.card_id.upper())
             udp_send(msg, lox_ip, lox_port)
             push_event({"type": "udp_sent", "msg": msg})
 
@@ -113,7 +118,8 @@ def main():
     recognizer    = CardRecognizer("PLATEST",
                                    min_matches=cfg.get("card_min_matches", 12),
                                    threshold=cfg.get("card_score_threshold", 0.08))
-    card_detector = CardDetector(min_area=cfg.get("card_min_area", 1500))
+    fast_detector = FastDetector(min_area=cfg.get("card_min_area", 4000))
+    card_detector = CardDetector()
 
     if monitor_on:
         start_ws()
@@ -171,6 +177,8 @@ def main():
         if frame is None:
             time.sleep(0.01)
             continue
+        # Picamera2 sort du RGB, tout le pipeline attend du BGR
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
         frame_count += 1
         now = time.time()
@@ -206,14 +214,22 @@ def main():
         # Scan carte en continu, personne = validation
         # ════════════════════════════════════════════════════
         if card_first:
-            region = card_detector.detect(frame)
-            if region is None:
+            # L1 : détection rapide du losange
+            quad = fast_detector.detect(frame)
+            if quad is None:
                 continue
 
-            # Valider presence joueur si requis
+            # Valider présence joueur si requis
             if require_person and pf.count == 0:
                 continue
 
+            # L2 : matching sur le ROI cropé
+            roi    = quad.crop(frame)
+            region = card_detector.detect(roi)
+            if region is None:
+                continue
+
+            # L3 : confirmation ORB
             result = recognizer.recognize(region.warped)
             if result is None:
                 continue
@@ -222,8 +238,6 @@ def main():
             push_event({"type": "card_detected", "card_id": result.card_id,
                         "label": result.label, "score": result.score})
             run_actions(cfg, rule_engine, result, audio, video)
-            if audio_on:
-                play_audio(audio)
             state          = State.TRIGGERED
             last_triggered = now
             print("[state] -> TRIGGERED (" + str(card_cooldown) + "s)")
@@ -255,7 +269,12 @@ def main():
                 print("[state] INSPECTION -> IDLE (absent)")
                 continue
 
-            region = card_detector.detect(frame)
+            # L1 → L2 → L3
+            quad = fast_detector.detect(frame)
+            if quad is None:
+                continue
+            roi    = quad.crop(frame)
+            region = card_detector.detect(roi)
             if region is None:
                 continue
             result = recognizer.recognize(region.warped)
