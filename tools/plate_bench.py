@@ -1,9 +1,9 @@
 """
-tools/plate_bench.py  v6
+tools/plate_bench.py  v6.1
 Bench interactif avec pipeline 2 niveaux + ROI dynamique + VideoPlayer.
 
 Modes :
-  (aucun)               cv2.imshow local + mpv fullscreen
+  (aucun)               idle screen OpenCV + mpv fullscreen sur detection
   --no-display          headless, snap uniquement au changement de carte
   --stream              serveur MJPEG Flask sur :5051
   --no-video            désactive le VideoPlayer (bench pur)
@@ -68,7 +68,7 @@ def open_picam(w=1280, h=720):
     return cam
 
 
-# ── OSD ───────────────────────────────────────────────────────────────────────
+# ── OSD (mode bench uniquement, pas en mode video) ─────────────────────────
 
 def put(img, text, pos, color=(0, 255, 255), scale=0.55, thick=2):
     cv2.putText(img, text, pos, FONT, scale, (0, 0, 0), thick + 2)
@@ -97,9 +97,8 @@ def build_overlay(frame, quad, result, fps, dt_ms, backend, player_active):
         put(out, "no quad", (10, 72), (0, 100, 255))
 
     if result:
-        # Nom de la carte en grand au centre
         label = result.card_id.replace("plate_", "").upper()
-        tw, th = cv2.getTextSize(label, FONT, 1.4, 3)[0]
+        tw = cv2.getTextSize(label, FONT, 1.4, 3)[0][0]
         cx = (out.shape[1] - tw) // 2
         cy = out.shape[0] - 40
         cv2.putText(out, label, (cx, cy), FONT, 1.4, (0, 0, 0), 6)
@@ -189,12 +188,8 @@ def main():
         try:
             from apps.video_player import VideoPlayer
             player = VideoPlayer(video_dir=args.video_dir)
-            # Charge la première carte disponible en idle
-            first_card = pipe.card_ids[0] if pipe.card_ids else None
-            player.start(initial_card=first_card)
-            player.watch_end(player.pause_on_frame1)
-            print("[bench] VideoPlayer prêt (carte idle: " +
-                  str(first_card) + ")")
+            player.start()   # idle screen : fond noir + titre
+            print("[bench] VideoPlayer prêt")
         except Exception as e:
             print("[bench] VideoPlayer indisponible : " + str(e))
             player = None
@@ -221,7 +216,7 @@ def main():
     fps_val      = 0.0
     snap_n       = 0
     last_snap_id = None
-    last_play_id = None   # évite de relancer la même vidéo en boucle
+    last_play_id = None
     paused       = False
     running      = True
     out          = None
@@ -257,7 +252,7 @@ def main():
                     player.play_card(result.card_id)
                     last_play_id = result.card_id
             elif player and not result:
-                last_play_id = None   # reset quand plus de carte
+                last_play_id = None
 
             # ── Mode headless ─────────────────────────────────────────────────
             if args.no_display:
@@ -279,24 +274,30 @@ def main():
                 time.sleep(0.04)
                 continue
 
-        # ── Mode display local ────────────────────────────────────────────────
-        if out is not None:
-            cv2.imshow(WIN, out)
-        key = cv2.waitKey(1) & 0xFF
-        if key in (ord("q"), 27):
-            running = False
-        elif key == ord(" "):
-            paused = not paused
-            print("[bench] " + ("pause" if paused else "resume"))
-        elif key == ord("r"):
-            pipe.reload()
-            print("[bench] templates rechargees")
+        # ── Mode display local (bench sans video) ──────────────────────────
+        if not player:
+            if out is not None:
+                cv2.imshow(WIN, out)
+            key = cv2.waitKey(1) & 0xFF
+            if key in (ord("q"), 27):
+                running = False
+            elif key == ord(" "):
+                paused = not paused
+                print("[bench] " + ("pause" if paused else "resume"))
+            elif key == ord("r"):
+                pipe.reload()
+                print("[bench] templates rechargees")
+        else:
+            # VideoPlayer gère son propre affichage, juste waitKey pour Qt
+            key = cv2.waitKey(1) & 0xFF
+            if key in (ord("q"), 27):
+                running = False
 
     pipe.stop()
     if player:
         player.stop()
     close_fn()
-    if not args.no_display and not args.stream:
+    if not player and not args.no_display and not args.stream:
         cv2.destroyAllWindows()
     print("[bench] bye")
 
