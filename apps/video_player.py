@@ -1,125 +1,172 @@
 """
-apps/video_player.py
+apps/video_player.py  v2
 Player vidéo mpv piloté via socket IPC.
-- Frame 1 en pause au démarrage (idle)
-- Lance la vidéo quand carte détectée
-- Retour frame 1 à la fin
-- Rotation aléatoire si plusieurs fichiers dans le dossier
+
+Comportement :
+  - Au démarrage : fenêtre noire fullscreen avec titre (idle screen via OpenCV)
+  - Carte détectée : mpv lance la vidéo en fullscreen
+  - Fin de vidéo  : retour à l'idle screen
 
 Usage standalone:
     python3 apps/video_player.py --card vampire
-    python3 apps/video_player.py --card vampire --video-dir assets/video
 
 Intégration pipeline:
     from apps.video_player import VideoPlayer
     player = VideoPlayer()
     player.start()
-    player.play_card("vampire")   # déclenché par pipeline
+    player.play_card("plate_vampire")
     player.stop()
 """
 from __future__ import annotations
 import os, json, socket, time, subprocess, random, argparse, threading, glob
 
-VIDEO_DIR  = os.path.join(os.path.dirname(__file__), "..", "assets", "video")
-MPV_SOCKET = "/tmp/steam_mpv.sock"
-MPV_BIN    = "mpv"
+import cv2
+import numpy as np
+
+VIDEO_DIR    = os.path.join(os.path.dirname(__file__), "..", "assets", "video")
+MPV_SOCKET   = "/tmp/steam_mpv.sock"
+MPV_BIN      = "mpv"
+IDLE_WIN     = "steam_vision"
+IDLE_TITLE   = "Qui ose se presenter devant moi ?\nQu'avez-vous a m'offrir ?"
+FONT         = cv2.FONT_HERSHEY_SIMPLEX
 
 
 def _find_videos(card_name: str, video_dir: str = VIDEO_DIR) -> list[str]:
-    """Retourne la liste des mp4 dans le dossier de la carte."""
     card_dir = os.path.join(video_dir, card_name.replace("plate_", ""))
     if not os.path.isdir(card_dir):
-        print("[player] dossier introuvable : " + card_dir)
         return []
     return sorted(glob.glob(os.path.join(card_dir, "*.mp4")))
 
 
+def _make_idle_frame(w: int = 1280, h: int = 720) -> np.ndarray:
+    """Génère une frame noire avec le texte idle centré."""
+    frame = np.zeros((h, w, 3), dtype=np.uint8)
+    lines = IDLE_TITLE.split("\n")
+    scale  = 1.1
+    thick  = 2
+    line_h = int(cv2.getTextSize("A", FONT, scale, thick)[0][1] * 2.8)
+    total_h = line_h * len(lines)
+    y_start = (h - total_h) // 2 + line_h
+    for i, line in enumerate(lines):
+        tw = cv2.getTextSize(line, FONT, scale, thick)[0][0]
+        x  = (w - tw) // 2
+        y  = y_start + i * line_h
+        # ombre
+        cv2.putText(frame, line, (x + 2, y + 2), FONT, scale, (80, 40, 0), thick + 2)
+        # texte doré
+        cv2.putText(frame, line, (x, y), FONT, scale, (0, 180, 220), thick)
+    return frame
+
+
 class VideoPlayer:
     """
-    Contrôle mpv via socket IPC.
-    mpv tourne en fullscreen, on lui envoie des commandes JSON.
+    Gère l'idle screen OpenCV + le player mpv pour les vidéos plein écran.
     """
 
     def __init__(
         self,
         video_dir:  str  = VIDEO_DIR,
         mpv_socket: str  = MPV_SOCKET,
-        fullscreen: bool = True,
+        win_w:      int  = 1280,
+        win_h:      int  = 720,
     ):
         self.video_dir  = video_dir
         self.mpv_socket = mpv_socket
-        self.fullscreen = fullscreen
-        self._proc: subprocess.Popen | None = None
+        self.win_w      = win_w
+        self.win_h      = win_h
+        self._proc:      subprocess.Popen | None = None
+        self._idle_frame = _make_idle_frame(win_w, win_h)
+        self._playing    = False
+        self._idle_thread: threading.Thread | None = None
+        self._running    = False
 
-    def start(self, initial_card: str | None = None):
-        """
-        Lance mpv en pause sur la première frame.
-        Si initial_card est fourni, charge le premier fichier de cette carte.
-        """
-        vids = _find_videos(initial_card or "", self.video_dir) if initial_card else []
-        cmd  = [
-            MPV_BIN,
-            "--input-ipc-server=" + self.mpv_socket,
-            "--keep-open=yes",
-            "--pause",
-            "--loop=no",
-        ]
-        if self.fullscreen:
-            cmd.append("--fullscreen")
-        if vids:
-            cmd.append(vids[0])
-        else:
-            cmd.append("--idle=yes")
+    # ── Cycle de vie ────────────────────────────────────────────────────
 
-        self._proc = subprocess.Popen(cmd,
-                                      stdout=subprocess.DEVNULL,
-                                      stderr=subprocess.DEVNULL)
-        time.sleep(1.5)
-        print("[player] mpv démarré (socket=" + self.mpv_socket + ")")
+    def start(self):
+        """Ouvre la fenêtre idle fullscreen."""
+        self._running = True
+        cv2.namedWindow(IDLE_WIN, cv2.WINDOW_NORMAL)
+        cv2.setWindowProperty(IDLE_WIN, cv2.WND_PROP_FULLSCREEN,
+                              cv2.WINDOW_FULLSCREEN)
+        self._show_idle()
+        self._idle_thread = threading.Thread(
+            target=self._idle_loop, daemon=True, name="idle-loop")
+        self._idle_thread.start()
+        print("[player] idle screen actif")
+
+    def stop(self):
+        """Ferme tout."""
+        self._running = False
+        self._kill_mpv()
+        cv2.destroyWindow(IDLE_WIN)
+        print("[player] stopped")
+
+    # ── Contrôle ───────────────────────────────────────────────────────
 
     def play_card(self, card_id: str):
-        """
-        Déclenché par le pipeline quand une carte est confirmée.
-        Charge une vidéo aléatoire de la carte et la lance.
-        """
+        """Lance la vidéo de la carte en fullscreen, cache l'idle screen."""
         vids = _find_videos(card_id, self.video_dir)
         if not vids:
             print("[player] aucune vidéo pour " + card_id)
             return
         chosen = random.choice(vids)
-        print("[player] play " + os.path.basename(chosen) + " (" + card_id + ")")
-        self._send(["loadfile", chosen, "replace"])
-        time.sleep(0.3)
-        self._send(["set_property", "pause", False])
+        print("[player] play " + os.path.basename(chosen))
 
-    def pause_on_frame1(self):
-        """Retour à la première frame en pause (état idle)."""
-        self._send(["seek", 0, "absolute"])
-        self._send(["set_property", "pause", True])
-        print("[player] idle — frame 1 pause")
+        # Cacher la fenêtre idle
+        cv2.setWindowProperty(IDLE_WIN, cv2.WND_PROP_VISIBLE, 0)
+        self._playing = True
 
-    def stop(self):
-        """Quitter mpv proprement."""
-        self._send(["quit"])
+        # Lancer mpv en fullscreen
+        self._kill_mpv()
+        cmd = [
+            MPV_BIN,
+            "--fullscreen",
+            "--no-osd-bar",
+            "--input-ipc-server=" + self.mpv_socket,
+            "--keep-open=no",
+            chosen,
+        ]
+        self._proc = subprocess.Popen(cmd,
+                                      stdout=subprocess.DEVNULL,
+                                      stderr=subprocess.DEVNULL)
+        # Thread de surveillance fin de vidéo
+        threading.Thread(target=self._watch_end, daemon=True,
+                         name="mpv-watch").start()
+
+    def _watch_end(self):
+        """Attend que mpv se termine, puis reaffiche l'idle screen."""
         if self._proc:
-            try:    self._proc.wait(timeout=3)
-            except: self._proc.kill()
-        print("[player] stopped")
+            self._proc.wait()
+        self._playing = False
+        self._show_idle()
+        print("[player] video terminée, retour idle")
 
-    def watch_end(self, on_end_callback):
-        """Thread qui surveille la fin de vidéo et appelle le callback."""
-        def _loop():
-            while self._proc and self._proc.poll() is None:
-                try:
-                    if self._get_property("eof-reached"):
-                        on_end_callback()
-                        time.sleep(1.0)
-                except Exception:
-                    pass
-                time.sleep(0.5)
-        threading.Thread(target=_loop, daemon=True, name="mpv-watch").start()
+    def _show_idle(self):
+        """Réaffiche la fenêtre idle."""
+        cv2.setWindowProperty(IDLE_WIN, cv2.WND_PROP_VISIBLE, 1)
+        cv2.setWindowProperty(IDLE_WIN, cv2.WND_PROP_FULLSCREEN,
+                              cv2.WINDOW_FULLSCREEN)
+        cv2.imshow(IDLE_WIN, self._idle_frame)
+        cv2.waitKey(1)
 
-    # ── IPC ──────────────────────────────────────────────────────────────────────────
+    def _idle_loop(self):
+        """Maintient la fenêtre idle vivante (waitKey requis par Qt)."""
+        while self._running:
+            if not self._playing:
+                cv2.waitKey(100)
+            else:
+                time.sleep(0.1)
+
+    def _kill_mpv(self):
+        if self._proc and self._proc.poll() is None:
+            try:
+                self._send(["quit"])
+                self._proc.wait(timeout=2)
+            except Exception:
+                self._proc.kill()
+            self._proc = None
+
+    # ── IPC mpv ───────────────────────────────────────────────────────
 
     def _send(self, cmd: list):
         msg = json.dumps({"command": cmd}).encode() + b"\n"
@@ -128,34 +175,23 @@ class VideoPlayer:
                 s.settimeout(2.0)
                 s.connect(self.mpv_socket)
                 s.sendall(msg)
-        except Exception as e:
-            print("[player] IPC error : " + str(e))
-
-    def _get_property(self, prop: str):
-        msg = json.dumps({"command": ["get_property", prop]}).encode() + b"\n"
-        try:
-            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-                s.settimeout(2.0)
-                s.connect(self.mpv_socket)
-                s.sendall(msg)
-                data = s.recv(4096).decode()
-                r = json.loads(data.strip().split("\n")[0])
-                return r.get("data")
         except Exception:
-            return None
+            pass
 
 
-# ── Standalone test ─────────────────────────────────────────────────────────────────────
+# ── Standalone test ─────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+def main():
     p = argparse.ArgumentParser()
     p.add_argument("--card",      default="vampire")
     p.add_argument("--video-dir", default=VIDEO_DIR)
     args = p.parse_args()
 
     player = VideoPlayer(video_dir=args.video_dir)
-    player.start(initial_card=args.card)
-    player.watch_end(player.pause_on_frame1)
+    player.start()
+
+    print("[test] lecture dans 3s : " + args.card)
+    time.sleep(3)
     player.play_card(args.card)
 
     try:
@@ -166,3 +202,7 @@ if __name__ == "__main__":
         pass
 
     player.stop()
+
+
+if __name__ == "__main__":
+    main()
