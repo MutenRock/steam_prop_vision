@@ -12,10 +12,10 @@ ASSETS_DIR  = Path(__file__).parent / "assets" / "videos"
 
 
 def scan_templates() -> list[str]:
+    """Retourne les noms des sous-dossiers de PLATEST/ (= card_ids)."""
     if not PLATEST_DIR.exists():
         return []
-    return sorted(p.stem for p in PLATEST_DIR.iterdir()
-                  if p.suffix.lower() in (".jpg", ".png"))
+    return sorted(p.name for p in PLATEST_DIR.iterdir() if p.is_dir())
 
 
 def scan_videos() -> list[str]:
@@ -70,9 +70,8 @@ def build_gui() -> None:
     videos    = scan_videos()
     existing  = cfg.get("cards", [])
 
-    # Si aucun template trouvé, on avertit
     if not templates:
-        print("[setup] Aucun template trouvé dans PLATEST/")
+        print("[setup] Aucun sous-dossier trouvé dans PLATEST/")
 
     root = tk.Tk()
     root.title("S.T.E.A.M Vision — Setup")
@@ -113,9 +112,7 @@ def build_gui() -> None:
 
     rows: list = []
 
-    # Construire une ligne par template disponible
     for i, tpl_id in enumerate(templates):
-        # Chercher config existante pour ce template
         saved = next((c for c in existing if c["id"] == tpl_id), {})
 
         tpl_var = tk.StringVar(value=tpl_id)
@@ -125,7 +122,6 @@ def build_gui() -> None:
         )
         lbl_var = tk.StringVar(value=saved.get("label", ""))
 
-        # Template label (non éditable)
         ttk.Label(frame, text=tpl_id, foreground="#aaffcc").grid(
             row=i+1, column=0, padx=8, pady=3, sticky="w")
         ttk.Combobox(frame, textvariable=vid_var, values=videos,
