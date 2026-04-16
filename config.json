@@ -1,0 +1,36 @@
+{
+  "udp_port": 5005,
+  "idle_text": "Qu'avez vous \u00e0 me pr\u00e9senter voyageur du temps ?",
+  "detection": {
+    "min_quadrants": 2,
+    "quad_min_matches": 4,
+    "quad_threshold": 0.03
+  },
+  "cards": [
+    {
+      "id": "plate_bougie",
+      "video": "",
+      "label": "La bougie est d\u00e9tect\u00e9e !"
+    },
+    {
+      "id": "plate_cellule",
+      "video": "",
+      "label": "La cellule est d\u00e9tect\u00e9e !"
+    },
+    {
+      "id": "plate_chaudron",
+      "video": "",
+      "label": "Le chaudron est d\u00e9tect\u00e9 !"
+    },
+    {
+      "id": "plate_dague",
+      "video": "",
+      "label": "La dague est d\u00e9tect\u00e9e !"
+    },
+    {
+      "id": "plate_vampire",
+      "video": "",
+      "label": "Le vampire est d\u00e9tect\u00e9 !"
+    }
+  ]
+}
