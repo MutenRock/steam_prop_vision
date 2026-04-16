@@ -1,6 +1,15 @@
 #!/bin/bash
 # run.sh - S.T.E.A.M Vision v2
+# Usage:
+#   ./run.sh            -> ouvre le GUI de configuration
+#   ./run.sh --debug    -> lance directement en mode debug
+#   ./run.sh --escape   -> lance directement en mode escape (prod)
 cd "$(dirname "$0")"
+
+MODE=""
+if [[ "$1" == "--debug" || "$1" == "--escape" ]]; then
+  MODE="$1"
+fi
 
 # Verif venv
 if [ ! -d .venv ]; then
@@ -23,5 +32,10 @@ python3 -c "import cv2" 2>/dev/null \
   && echo "[run] OpenCV OK" \
   || { echo "[run] ERREUR : cv2 manquant -> pip install opencv-python"; exit 1; }
 
-echo "[run] Lancement S.T.E.A.M Vision v2..."
-python3 gui_setup.py
+if [ -n "$MODE" ]; then
+  echo "[run] Lancement direct : mode $MODE"
+  python3 main.py "$MODE"
+else
+  echo "[run] Lancement GUI S.T.E.A.M Vision v2..."
+  python3 gui_setup.py
+fi
