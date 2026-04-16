@@ -1,0 +1,30 @@
+{
+  "udp_port": 5005,
+  "cards": [
+    {
+      "id": "plate_bougie",
+      "video": "assets/videos/bougie.mp4",
+      "label": "La bougie est détectée !"
+    },
+    {
+      "id": "plate_cellule",
+      "video": "assets/videos/cellule.mp4",
+      "label": "La cellule est détectée !"
+    },
+    {
+      "id": "plate_chaudron",
+      "video": "assets/videos/chaudron.mp4",
+      "label": "Le chaudron est détecté !"
+    },
+    {
+      "id": "plate_dague",
+      "video": "assets/videos/dague.mp4",
+      "label": "La dague est détectée !"
+    },
+    {
+      "id": "plate_vampire",
+      "video": "assets/videos/vampire.mp4",
+      "label": "Le vampire est détecté !"
+    }
+  ]
+}
