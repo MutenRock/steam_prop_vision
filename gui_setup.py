@@ -17,11 +17,6 @@ def scan_templates() -> list[str]:
 
 
 def scan_all_videos() -> dict[str, Path]:
-    """
-    Scanne assets/videos/ récursivement.
-    Retourne {label_affiché: Path_absolu}
-    Label = chemin relatif à ASSETS_DIR, ex: "bougie/magie.mp4"
-    """
     exts = (".mp4", ".mkv", ".avi")
     result = {}
     if not ASSETS_DIR.exists():
@@ -73,14 +68,21 @@ def save_and_launch(rows: list, udp_var: tk.StringVar,
 def build_gui() -> None:
     cfg        = load_config()
     templates  = scan_templates()
-    video_map  = scan_all_videos()        # {label: Path}
-    vlabels    = list(video_map.keys())   # liste pour tous les combobox
+    video_map  = scan_all_videos()
+    vlabels    = list(video_map.keys())
     existing   = cfg.get("cards", [])
 
+    # ── Rapport console au lancement
+    print(f"[setup] Cartes PLATEST ({len(templates)}) :")
+    for t in templates:
+        print(f"  - {t}")
+    print(f"[setup] Vid\u00e9os assets/videos/ ({len(vlabels)}) :")
+    for v in vlabels:
+        print(f"  - {v}")
     if not templates:
-        print("[setup] Aucun sous-dossier trouv\u00e9 dans PLATEST/")
+        print("[setup] AVERTISSEMENT : aucun sous-dossier dans PLATEST/")
     if not vlabels:
-        print("[setup] Aucune vid\u00e9o trouv\u00e9e dans assets/videos/")
+        print("[setup] AVERTISSEMENT : aucune vid\u00e9o dans assets/videos/")
 
     root = tk.Tk()
     root.title("S.T.E.A.M Vision \u2014 Setup")
@@ -101,14 +103,12 @@ def build_gui() -> None:
     tk.Label(root, text="\u2699  S.T.E.A.M Vision  v2",
              bg="#1a1a2e", fg="#00d4ff", font=("Courier", 15, "bold")).pack(pady=(16, 6))
 
-    # UDP port
     top = ttk.Frame(root)
     top.pack(padx=24, pady=4, fill="x")
     ttk.Label(top, text="UDP broadcast port :").pack(side="left")
     udp_var = tk.StringVar(value=str(cfg.get("udp_port", 5005)))
     ttk.Entry(top, textvariable=udp_var, width=8).pack(side="left", padx=8)
 
-    # Idle text
     idle_frame = ttk.Frame(root)
     idle_frame.pack(padx=24, pady=4, fill="x")
     ttk.Label(idle_frame, text="Texte idle        :").pack(side="left")
@@ -116,7 +116,6 @@ def build_gui() -> None:
         "Qu'avez vous \u00e0 me pr\u00e9senter voyageur du temps ?"))
     ttk.Entry(idle_frame, textvariable=idle_var, width=48).pack(side="left", padx=8)
 
-    # Tableau cartes
     frame = ttk.Frame(root)
     frame.pack(padx=24, pady=(12, 4))
     for col, txt in enumerate(["Template", "Vid\u00e9o", "Texte d\u00e9tection"]):
@@ -128,7 +127,6 @@ def build_gui() -> None:
         saved = next((c for c in existing if c["id"] == tpl_id), {})
         tpl_var = tk.StringVar(value=tpl_id)
 
-        # Retrouver le label depuis le chemin sauvegardé
         saved_path = saved.get("video", "")
         saved_label = ""
         if saved_path:
@@ -149,7 +147,6 @@ def build_gui() -> None:
             row=i+1, column=2, padx=8, pady=3)
         rows.append((tpl_var, vid_var, lbl_var))
 
-    # Boutons
     btn_frame = ttk.Frame(root)
     btn_frame.pack(pady=(16, 8))
     ttk.Button(btn_frame, text="\U0001f3ae  Mode ESCAPE", style="Escape.TButton",
