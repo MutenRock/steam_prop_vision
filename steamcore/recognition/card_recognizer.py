@@ -1,10 +1,17 @@
 """
 steamcore/recognition/card_recognizer.py
-Reconnaissance ORB par quadrants : valide si >= min_quadrants sur 4 matchent.
+
+Logique de reconnaissance :
+  - Chaque plaque peut avoir N images dans son dossier PLATEST (ex: bougie.jpg,
+    bougie_top.jpg, bougie_bottom.jpg, bougie_left.jpg, bougie_right.jpg).
+  - Pour chaque image template, on tente un match ORB global.
+  - Si AU MOINS UNE image template matche (score >= threshold ET matches >= min_matches)
+    → la plaque est validée.
+  - Le score final retourné est le meilleur score parmi toutes les images.
 """
 from __future__ import annotations
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import cv2
 import numpy as np
 
@@ -14,25 +21,16 @@ def _find_images(directory: Path) -> list:
     imgs = []
     for ext in exts:
         imgs.extend(directory.rglob(ext))
-    return [p for p in imgs if not p.name.startswith(".")]
-
-
-# Quadrants : (y1, y2, x1, x2) en fractions du warp
-_QUADS = [
-    (0,   0.5, 0,   0.5),   # top-left
-    (0,   0.5, 0.5, 1.0),   # top-right
-    (0.5, 1.0, 0,   0.5),   # bottom-left
-    (0.5, 1.0, 0.5, 1.0),   # bottom-right
-]
+    return sorted(p for p in imgs if not p.name.startswith("."))
 
 
 @dataclass
 class RecognitionResult:
-    card_id:    str
-    label:      str
-    score:      float
-    matches:    int
-    quads_ok:   int = 0   # nb de quadrants valides
+    card_id:      str
+    label:        str
+    score:        float
+    matches:      int
+    matched_img:  str = ""   # nom de l'image qui a matché
 
 
 class CardRecognizer:
@@ -41,77 +39,64 @@ class CardRecognizer:
 
     def __init__(
         self,
-        platest_dir:    str   = "PLATEST",
-        # parametres globaux (fallback si pas de config quadrant)
-        min_matches:    int   = 8,
-        threshold:      float = 0.04,
-        # parametres quadrants
-        quad_min_matches: int   = 4,
-        quad_threshold:   float = 0.03,
-        min_quadrants:    int   = 2,
+        platest_dir:  str   = "PLATEST",
+        min_matches:  int   = 6,
+        threshold:    float = 0.03,
     ):
-        self.platest_dir      = platest_dir
-        self.min_matches      = min_matches
-        self.threshold        = threshold
-        self.quad_min_matches = quad_min_matches
-        self.quad_threshold   = quad_threshold
-        self.min_quadrants    = min_quadrants
+        self.platest_dir = platest_dir
+        self.min_matches = min_matches
+        self.threshold   = threshold
         self._orb     = cv2.ORB_create(nfeatures=800)
         self._matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
         self._templates: list = []
         self._load()
 
     def load_config(self, cfg: dict):
-        cr = cfg.get("detection", {})
-        self.quad_min_matches = cr.get("quad_min_matches", self.quad_min_matches)
-        self.quad_threshold   = cr.get("quad_threshold",   self.quad_threshold)
-        self.min_quadrants    = cr.get("min_quadrants",    self.min_quadrants)
+        det = cfg.get("detection", {})
+        self.min_matches = det.get("min_matches", self.min_matches)
+        self.threshold   = det.get("threshold",   self.threshold)
         self.reload()
 
     def recognize(self, warped: np.ndarray, hint_id: str | None = None):
         gray = self._to_gray(warped)
         gray = cv2.resize(gray, (self.WARP_SIZE, self.WARP_SIZE))
-        S    = self.WARP_SIZE
+
+        kps_q, desc_q = self._orb.detectAndCompute(gray, None)
+        if desc_q is None:
+            return None
 
         templates = self._templates
         if hint_id:
             templates = [t for t in self._templates if t.card_id == hint_id] or self._templates
 
-        best_score, best_quads, best_id = 0.0, 0, None
+        best_score, best_matches, best_id, best_img = 0.0, 0, None, ""
 
         for tmpl in templates:
-            quads_ok = 0
-            total_score = 0.0
-
-            for (fy1, fy2, fx1, fx2) in _QUADS:
-                y1, y2 = int(fy1 * S), int(fy2 * S)
-                x1, x2 = int(fx1 * S), int(fx2 * S)
-                patch = gray[y1:y2, x1:x2]
-
-                kps_q, desc_q = self._orb.detectAndCompute(patch, None)
-                if desc_q is None:
+            # Tente chaque image du template — valide si UNE seule matche
+            for img_name, kps_r, desc_r in tmpl.images:
+                try:
+                    ms   = self._matcher.knnMatch(desc_q, desc_r, k=2)
+                    good = [m for m, n in ms
+                            if m.distance < self.RATIO_TEST * n.distance]
+                    score = len(good) / max(len(kps_r), len(kps_q), 1)
+                    if score >= self.threshold and len(good) >= self.min_matches:
+                        if score > best_score:
+                            best_score   = score
+                            best_matches = len(good)
+                            best_id      = tmpl.card_id
+                            best_img     = img_name
+                except Exception:
                     continue
 
-                score, matches = self._score_quad(kps_q, desc_q, tmpl,
-                                                   fy1, fy2, fx1, fx2)
-                total_score += score
-                if score >= self.quad_threshold and matches >= self.quad_min_matches:
-                    quads_ok += 1
-
-            if quads_ok > best_quads or (
-                    quads_ok == best_quads and total_score > best_score):
-                best_quads = quads_ok
-                best_score = total_score
-                best_id    = tmpl.card_id
-
-        if best_id is None or best_quads < self.min_quadrants:
+        if best_id is None:
             return None
 
         label = best_id.replace("plate_", "").replace("_", " ").capitalize()
         return RecognitionResult(
             card_id=best_id, label=label,
-            score=round(best_score, 4), matches=0,
-            quads_ok=best_quads,
+            score=round(best_score, 4),
+            matches=best_matches,
+            matched_img=best_img,
         )
 
     def reload(self):
@@ -134,28 +119,10 @@ class CardRecognizer:
             if not imgs:
                 continue
             tmpl = _OrbTemplate(subdir.name, imgs, self._orb)
-            if tmpl.quad_descs:
+            if tmpl.images:
                 self._templates.append(tmpl)
-        print("[recognizer] " + str(len(self._templates)) + " cartes chargees")
-
-    def _score_quad(self, kps_q, desc_q, tmpl, fy1, fy2, fx1, fx2):
-        """Score ORB sur le patch de quadrant correspondant du template."""
-        key = (fy1, fy2, fx1, fx2)
-        quad_data = tmpl.quad_descs.get(key)
-        if not quad_data:
-            return 0.0, 0
-        top_score, top_matches = 0.0, 0
-        for kps_r, desc_r in quad_data:
-            try:
-                ms   = self._matcher.knnMatch(desc_q, desc_r, k=2)
-                good = [m for m, n in ms
-                        if m.distance < self.RATIO_TEST * n.distance]
-                s    = len(good) / max(len(kps_r), len(kps_q), 1)
-                if s > top_score:
-                    top_score, top_matches = s, len(good)
-            except Exception:
-                continue
-        return top_score, top_matches
+                print(f"[recognizer] {subdir.name} ({len(tmpl.images)} imgs)")
+        print(f"[recognizer] {len(self._templates)} cartes chargees")
 
     @staticmethod
     def _to_gray(img: np.ndarray) -> np.ndarray:
@@ -164,14 +131,10 @@ class CardRecognizer:
 
 
 class _OrbTemplate:
-    """Stocke les descripteurs ORB par quadrant pour chaque image template."""
+    """Charge toutes les images d'une plaque et stocke leurs descripteurs ORB."""
     def __init__(self, card_id: str, paths, orb):
-        self.card_id   = card_id
-        self.quad_descs: dict = {}   # {(fy1,fy2,fx1,fx2): [(kps, desc), ...]}
-
-        for (fy1, fy2, fx1, fx2) in _QUADS:
-            self.quad_descs[(fy1, fy2, fx1, fx2)] = []
-
+        self.card_id = card_id
+        self.images: list = []   # [(nom_fichier, kps, desc), ...]
         S = CardRecognizer.WARP_SIZE
         for p in paths:
             img = cv2.imread(str(p))
@@ -179,11 +142,6 @@ class _OrbTemplate:
                 continue
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             gray = cv2.resize(gray, (S, S))
-
-            for (fy1, fy2, fx1, fx2) in _QUADS:
-                y1, y2 = int(fy1 * S), int(fy2 * S)
-                x1, x2 = int(fx1 * S), int(fx2 * S)
-                patch  = gray[y1:y2, x1:x2]
-                kps, desc = orb.detectAndCompute(patch, None)
-                if desc is not None and len(kps) >= 3:
-                    self.quad_descs[(fy1, fy2, fx1, fx2)].append((kps, desc))
+            kps, desc = orb.detectAndCompute(gray, None)
+            if desc is not None and len(kps) >= 4:
+                self.images.append((p.name, kps, desc))
