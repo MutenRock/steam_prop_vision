@@ -7,7 +7,7 @@ from pathlib import Path
 
 CONFIG_FILE = Path(__file__).parent / "config.json"
 PLATEST_DIR = Path(__file__).parent / "PLATEST"
-ASSETS_DIR  = Path(__file__).parent / "assets" / "video"  # sans 's'
+ASSETS_DIR  = Path(__file__).parent / "assets" / "video"
 
 
 def scan_templates() -> list[str]:
@@ -31,14 +31,16 @@ def scan_all_videos() -> dict[str, Path]:
 def load_config() -> dict:
     if CONFIG_FILE.exists():
         return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-    return {"udp_port": 5005,
-            "idle_text": "Qu'avez vous \u00e0 me pr\u00e9senter voyageur du temps ?",
-            "cards": []}
+    return {
+        "udp_port": 5005,
+        "idle_text": "Qu'avez vous \u00e0 me pr\u00e9senter voyageur du temps ?",
+        "detection": {"min_quadrants": 2, "quad_min_matches": 4, "quad_threshold": 0.03},
+        "cards": [],
+    }
 
 
-def save_and_launch(rows: list, udp_var: tk.StringVar,
-                    idle_var: tk.StringVar, mode: str, root: tk.Tk,
-                    video_map: dict) -> None:
+def save_and_launch(rows: list, udp_var: tk.StringVar, idle_var: tk.StringVar,
+                    det_vars: dict, mode: str, root: tk.Tk, video_map: dict) -> None:
     cards = []
     for tpl_var, vid_var, lbl_var in rows:
         tpl = tpl_var.get().strip()
@@ -57,8 +59,22 @@ def save_and_launch(rows: list, udp_var: tk.StringVar,
     except ValueError:
         messagebox.showerror("Erreur", "Port UDP invalide.")
         return
+    try:
+        detection = {
+            "min_quadrants":    int(det_vars["min_quadrants"].get()),
+            "quad_min_matches": int(det_vars["quad_min_matches"].get()),
+            "quad_threshold":   float(det_vars["quad_threshold"].get()),
+        }
+    except ValueError:
+        messagebox.showerror("Erreur", "Param\u00e8tres de d\u00e9tection invalides.")
+        return
 
-    config = {"udp_port": port, "idle_text": idle_var.get().strip(), "cards": cards}
+    config = {
+        "udp_port":  port,
+        "idle_text": idle_var.get().strip(),
+        "detection": detection,
+        "cards":     cards,
+    }
     CONFIG_FILE.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"[setup] config.json \u00e9crit ({len(cards)} cartes) \u2014 mode {mode}")
     root.destroy()
@@ -71,18 +87,14 @@ def build_gui() -> None:
     video_map  = scan_all_videos()
     vlabels    = list(video_map.keys())
     existing   = cfg.get("cards", [])
+    det_cfg    = cfg.get("detection", {})
 
-    # Rapport console
     print(f"[setup] Cartes PLATEST ({len(templates)}) :")
     for t in templates:
         print(f"  - {t}")
     print(f"[setup] Vid\u00e9os assets/video/ ({len(vlabels)}) :")
     for v in vlabels:
         print(f"  - {v}")
-    if not templates:
-        print("[setup] AVERTISSEMENT : aucun sous-dossier dans PLATEST/")
-    if not vlabels:
-        print("[setup] AVERTISSEMENT : aucune vid\u00e9o dans assets/video/")
 
     root = tk.Tk()
     root.title("S.T.E.A.M Vision \u2014 Setup")
@@ -97,18 +109,21 @@ def build_gui() -> None:
     style.configure("Escape.TButton", background="#1a0a2e", foreground="#ff6ec7", font=("Courier", 13, "bold"), padding=12)
     style.configure("Debug.TButton",  background="#0a1e2e", foreground="#00ff99", font=("Courier", 13, "bold"), padding=12)
     style.configure("Quit.TButton",   background="#2e0a0a", foreground="#ff4444", font=("Courier", 11, "bold"), padding=8)
+    style.configure("Sep.TLabel",     background="#1a1a2e", foreground="#444466", font=("Courier", 9))
     style.configure("TCombobox", fieldbackground="#16213e", foreground="#e0e0e0", background="#16213e")
     style.configure("TEntry",    fieldbackground="#16213e", foreground="#e0e0e0")
 
     tk.Label(root, text="\u2699  S.T.E.A.M Vision  v2",
              bg="#1a1a2e", fg="#00d4ff", font=("Courier", 15, "bold")).pack(pady=(16, 6))
 
+    # UDP
     top = ttk.Frame(root)
     top.pack(padx=24, pady=4, fill="x")
     ttk.Label(top, text="UDP broadcast port :").pack(side="left")
     udp_var = tk.StringVar(value=str(cfg.get("udp_port", 5005)))
     ttk.Entry(top, textvariable=udp_var, width=8).pack(side="left", padx=8)
 
+    # Idle text
     idle_frame = ttk.Frame(root)
     idle_frame.pack(padx=24, pady=4, fill="x")
     ttk.Label(idle_frame, text="Texte idle        :").pack(side="left")
@@ -116,8 +131,29 @@ def build_gui() -> None:
         "Qu'avez vous \u00e0 me pr\u00e9senter voyageur du temps ?"))
     ttk.Entry(idle_frame, textvariable=idle_var, width=48).pack(side="left", padx=8)
 
+    # ── Section détection
+    tk.Label(root, text="\u25b6  Param\u00e8tres d\u00e9tection",
+             bg="#1a1a2e", fg="#ffcc44", font=("Courier", 10, "bold")).pack(pady=(10, 2))
+    det_frame = ttk.Frame(root)
+    det_frame.pack(padx=24, pady=4)
+
+    det_vars = {}
+    det_fields = [
+        ("min_quadrants",    "Quadrants min valides (1-4) :", str(det_cfg.get("min_quadrants",    2))),
+        ("quad_min_matches", "Matches min / quadrant      :", str(det_cfg.get("quad_min_matches", 4))),
+        ("quad_threshold",   "Score seuil / quadrant      :", str(det_cfg.get("quad_threshold",   0.03))),
+    ]
+    for row_i, (key, label, default) in enumerate(det_fields):
+        ttk.Label(det_frame, text=label).grid(row=row_i, column=0, sticky="w", padx=4, pady=2)
+        var = tk.StringVar(value=default)
+        ttk.Entry(det_frame, textvariable=var, width=8).grid(row=row_i, column=1, padx=8, pady=2)
+        det_vars[key] = var
+
+    # ── Tableau cartes
+    tk.Label(root, text="\u25b6  Cartes",
+             bg="#1a1a2e", fg="#ffcc44", font=("Courier", 10, "bold")).pack(pady=(10, 2))
     frame = ttk.Frame(root)
-    frame.pack(padx=24, pady=(12, 4))
+    frame.pack(padx=24, pady=(4, 4))
     for col, txt in enumerate(["Template", "Vid\u00e9o", "Texte d\u00e9tection"]):
         ttk.Label(frame, text=txt, foreground="#00d4ff").grid(
             row=0, column=col, padx=8, pady=4, sticky="w")
@@ -126,7 +162,6 @@ def build_gui() -> None:
     for i, tpl_id in enumerate(templates):
         saved = next((c for c in existing if c["id"] == tpl_id), {})
         tpl_var = tk.StringVar(value=tpl_id)
-
         saved_path = saved.get("video", "")
         saved_label = ""
         if saved_path:
@@ -134,11 +169,9 @@ def build_gui() -> None:
                 saved_label = str(Path(saved_path).relative_to(ASSETS_DIR))
             except ValueError:
                 saved_label = Path(saved_path).name
-
         vid_var = tk.StringVar(
             value=saved_label if saved_label in video_map else (vlabels[0] if vlabels else ""))
         lbl_var = tk.StringVar(value=saved.get("label", ""))
-
         ttk.Label(frame, text=tpl_id, foreground="#aaffcc").grid(
             row=i+1, column=0, padx=8, pady=3, sticky="w")
         ttk.Combobox(frame, textvariable=vid_var, values=vlabels,
@@ -147,13 +180,14 @@ def build_gui() -> None:
             row=i+1, column=2, padx=8, pady=3)
         rows.append((tpl_var, vid_var, lbl_var))
 
+    # Boutons
     btn_frame = ttk.Frame(root)
     btn_frame.pack(pady=(16, 8))
     ttk.Button(btn_frame, text="\U0001f3ae  Mode ESCAPE", style="Escape.TButton",
-               command=lambda: save_and_launch(rows, udp_var, idle_var, "escape", root, video_map)
+               command=lambda: save_and_launch(rows, udp_var, idle_var, det_vars, "escape", root, video_map)
                ).pack(side="left", padx=12)
     ttk.Button(btn_frame, text="\U0001f50d  Mode DEBUG", style="Debug.TButton",
-               command=lambda: save_and_launch(rows, udp_var, idle_var, "debug", root, video_map)
+               command=lambda: save_and_launch(rows, udp_var, idle_var, det_vars, "debug", root, video_map)
                ).pack(side="left", padx=12)
 
     ttk.Button(root, text="\u2716  Quitter", style="Quit.TButton",
