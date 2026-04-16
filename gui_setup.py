@@ -7,7 +7,7 @@ from pathlib import Path
 
 CONFIG_FILE = Path(__file__).parent / "config.json"
 PLATEST_DIR = Path(__file__).parent / "PLATEST"
-ASSETS_DIR  = Path(__file__).parent / "assets" / "videos"
+ASSETS_DIR  = Path(__file__).parent / "assets" / "video"  # sans 's'
 
 
 def scan_templates() -> list[str]:
@@ -72,17 +72,17 @@ def build_gui() -> None:
     vlabels    = list(video_map.keys())
     existing   = cfg.get("cards", [])
 
-    # ── Rapport console au lancement
+    # Rapport console
     print(f"[setup] Cartes PLATEST ({len(templates)}) :")
     for t in templates:
         print(f"  - {t}")
-    print(f"[setup] Vid\u00e9os assets/videos/ ({len(vlabels)}) :")
+    print(f"[setup] Vid\u00e9os assets/video/ ({len(vlabels)}) :")
     for v in vlabels:
         print(f"  - {v}")
     if not templates:
         print("[setup] AVERTISSEMENT : aucun sous-dossier dans PLATEST/")
     if not vlabels:
-        print("[setup] AVERTISSEMENT : aucune vid\u00e9o dans assets/videos/")
+        print("[setup] AVERTISSEMENT : aucune vid\u00e9o dans assets/video/")
 
     root = tk.Tk()
     root.title("S.T.E.A.M Vision \u2014 Setup")

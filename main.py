@@ -11,6 +11,7 @@ from steamcore.camera import Camera
 from steamcore.recognition.pipeline import RecognitionPipeline
 
 CONFIG_FILE  = Path(__file__).parent / "config.json"
+ASSETS_DIR   = Path(__file__).parent / "assets" / "video"  # sans 's'
 COOLDOWN_SEC = 10
 DEBUG_W, DEBUG_H = 1280, 480
 
@@ -101,11 +102,6 @@ def on_detect(card: dict, sock: socket.socket, udp_port: int,
         ensure_ascii=False))
 
 
-def make_quit_button(window_name: str):
-    """Affiche un bouton Quitter dans la fen\u00eatre OpenCV via trackbar hack."""
-    pass  # gestion via touche 'q'
-
-
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--debug",  action="store_true")
@@ -177,7 +173,7 @@ def main() -> None:
         if debug_reader:
             debug_reader.stop()
         cv2.destroyAllWindows()
-        os._exit(0)  # kill propre tous les threads
+        os._exit(0)
 
 
 if __name__ == "__main__":
