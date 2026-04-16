@@ -16,19 +16,21 @@ def scan_templates() -> list[str]:
     return sorted(p.name for p in PLATEST_DIR.iterdir() if p.is_dir())
 
 
-def scan_videos_for(tpl_id: str) -> list[Path]:
+def scan_all_videos() -> dict[str, Path]:
     """
-    Retourne les vidéos du sous-dossier assets/videos/<tpl_id>/
-    Si le dossier n'existe pas, retourne toutes les vidéos de assets/videos/ (fallback).
+    Scanne assets/videos/ récursivement.
+    Retourne {label_affiché: Path_absolu}
+    Label = chemin relatif à ASSETS_DIR, ex: "bougie/magie.mp4"
     """
     exts = (".mp4", ".mkv", ".avi")
-    specific = ASSETS_DIR / tpl_id
-    if specific.exists():
-        videos = sorted(p for p in specific.iterdir() if p.suffix.lower() in exts)
-        if videos:
-            return videos
-    # fallback : tous les sous-dossiers
-    return sorted(p for p in ASSETS_DIR.rglob("*") if p.suffix.lower() in exts)
+    result = {}
+    if not ASSETS_DIR.exists():
+        return result
+    for p in sorted(ASSETS_DIR.rglob("*")):
+        if p.suffix.lower() in exts:
+            label = str(p.relative_to(ASSETS_DIR))
+            result[label] = p
+    return result
 
 
 def load_config() -> dict:
@@ -41,15 +43,15 @@ def load_config() -> dict:
 
 def save_and_launch(rows: list, udp_var: tk.StringVar,
                     idle_var: tk.StringVar, mode: str, root: tk.Tk,
-                    video_maps: list[dict]) -> None:
+                    video_map: dict) -> None:
     cards = []
-    for (tpl_var, vid_var, lbl_var), vmap in zip(rows, video_maps):
+    for tpl_var, vid_var, lbl_var in rows:
         tpl = tpl_var.get().strip()
         vid = vid_var.get().strip()
         lbl = lbl_var.get().strip()
         if not tpl or not vid:
             continue
-        full_path = vmap.get(vid, "")
+        full_path = video_map.get(vid, "")
         cards.append({"id": tpl, "video": str(full_path), "label": lbl})
 
     if not cards:
@@ -69,12 +71,16 @@ def save_and_launch(rows: list, udp_var: tk.StringVar,
 
 
 def build_gui() -> None:
-    cfg       = load_config()
-    templates = scan_templates()
-    existing  = cfg.get("cards", [])
+    cfg        = load_config()
+    templates  = scan_templates()
+    video_map  = scan_all_videos()        # {label: Path}
+    vlabels    = list(video_map.keys())   # liste pour tous les combobox
+    existing   = cfg.get("cards", [])
 
     if not templates:
         print("[setup] Aucun sous-dossier trouv\u00e9 dans PLATEST/")
+    if not vlabels:
+        print("[setup] Aucune vid\u00e9o trouv\u00e9e dans assets/videos/")
 
     root = tk.Tk()
     root.title("S.T.E.A.M Vision \u2014 Setup")
@@ -95,12 +101,14 @@ def build_gui() -> None:
     tk.Label(root, text="\u2699  S.T.E.A.M Vision  v2",
              bg="#1a1a2e", fg="#00d4ff", font=("Courier", 15, "bold")).pack(pady=(16, 6))
 
+    # UDP port
     top = ttk.Frame(root)
     top.pack(padx=24, pady=4, fill="x")
     ttk.Label(top, text="UDP broadcast port :").pack(side="left")
     udp_var = tk.StringVar(value=str(cfg.get("udp_port", 5005)))
     ttk.Entry(top, textvariable=udp_var, width=8).pack(side="left", padx=8)
 
+    # Idle text
     idle_frame = ttk.Frame(root)
     idle_frame.pack(padx=24, pady=4, fill="x")
     ttk.Label(idle_frame, text="Texte idle        :").pack(side="left")
@@ -108,44 +116,47 @@ def build_gui() -> None:
         "Qu'avez vous \u00e0 me pr\u00e9senter voyageur du temps ?"))
     ttk.Entry(idle_frame, textvariable=idle_var, width=48).pack(side="left", padx=8)
 
+    # Tableau cartes
     frame = ttk.Frame(root)
     frame.pack(padx=24, pady=(12, 4))
-    for col, txt in enumerate(["Template", "Vid\u00e9o disponible", "Texte d\u00e9tection"]):
+    for col, txt in enumerate(["Template", "Vid\u00e9o", "Texte d\u00e9tection"]):
         ttk.Label(frame, text=txt, foreground="#00d4ff").grid(
             row=0, column=col, padx=8, pady=4, sticky="w")
 
-    rows: list       = []
-    video_maps: list = []   # un dict {label: Path} par ligne
-
+    rows: list = []
     for i, tpl_id in enumerate(templates):
         saved = next((c for c in existing if c["id"] == tpl_id), {})
-
-        # Vidéos spécifiques à cette plaque
-        vpaths = scan_videos_for(tpl_id)
-        vmap   = {p.name: p for p in vpaths}   # filename -> Path
-        vlabels = list(vmap.keys())
-
         tpl_var = tk.StringVar(value=tpl_id)
-        saved_vid = Path(saved.get("video", "")).name if saved.get("video") else ""
-        vid_var = tk.StringVar(value=saved_vid if saved_vid in vmap else (vlabels[0] if vlabels else ""))
+
+        # Retrouver le label depuis le chemin sauvegardé
+        saved_path = saved.get("video", "")
+        saved_label = ""
+        if saved_path:
+            try:
+                saved_label = str(Path(saved_path).relative_to(ASSETS_DIR))
+            except ValueError:
+                saved_label = Path(saved_path).name
+
+        vid_var = tk.StringVar(
+            value=saved_label if saved_label in video_map else (vlabels[0] if vlabels else ""))
         lbl_var = tk.StringVar(value=saved.get("label", ""))
 
         ttk.Label(frame, text=tpl_id, foreground="#aaffcc").grid(
             row=i+1, column=0, padx=8, pady=3, sticky="w")
         ttk.Combobox(frame, textvariable=vid_var, values=vlabels,
-                     width=30, state="readonly").grid(row=i+1, column=1, padx=8, pady=3)
+                     width=32, state="readonly").grid(row=i+1, column=1, padx=8, pady=3)
         ttk.Entry(frame, textvariable=lbl_var, width=32).grid(
             row=i+1, column=2, padx=8, pady=3)
         rows.append((tpl_var, vid_var, lbl_var))
-        video_maps.append(vmap)
 
+    # Boutons
     btn_frame = ttk.Frame(root)
     btn_frame.pack(pady=(16, 8))
     ttk.Button(btn_frame, text="\U0001f3ae  Mode ESCAPE", style="Escape.TButton",
-               command=lambda: save_and_launch(rows, udp_var, idle_var, "escape", root, video_maps)
+               command=lambda: save_and_launch(rows, udp_var, idle_var, "escape", root, video_map)
                ).pack(side="left", padx=12)
     ttk.Button(btn_frame, text="\U0001f50d  Mode DEBUG", style="Debug.TButton",
-               command=lambda: save_and_launch(rows, udp_var, idle_var, "debug", root, video_maps)
+               command=lambda: save_and_launch(rows, udp_var, idle_var, "debug", root, video_map)
                ).pack(side="left", padx=12)
 
     ttk.Button(root, text="\u2716  Quitter", style="Quit.TButton",
