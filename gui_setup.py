@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json, subprocess, sys, os
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog, simpledialog
 from pathlib import Path
 
 CONFIG_FILE = Path(__file__).parent / "config.json"
@@ -103,13 +103,14 @@ def build_gui() -> None:
 
     style = ttk.Style()
     style.theme_use("clam")
-    style.configure("TFrame",    background="#1a1a2e")
-    style.configure("TLabel",    background="#1a1a2e", foreground="#e0e0e0", font=("Courier", 10))
-    style.configure("TButton",   background="#16213e", foreground="#00d4ff", font=("Courier", 11, "bold"), padding=8)
-    style.configure("Escape.TButton", background="#1a0a2e", foreground="#ff6ec7", font=("Courier", 13, "bold"), padding=12)
-    style.configure("Debug.TButton",  background="#0a1e2e", foreground="#00ff99", font=("Courier", 13, "bold"), padding=12)
-    style.configure("Quit.TButton",   background="#2e0a0a", foreground="#ff4444", font=("Courier", 11, "bold"), padding=8)
-    style.configure("Sep.TLabel",     background="#1a1a2e", foreground="#444466", font=("Courier", 9))
+    style.configure("TFrame",        background="#1a1a2e")
+    style.configure("TLabel",        background="#1a1a2e", foreground="#e0e0e0", font=("Courier", 10))
+    style.configure("TButton",       background="#16213e", foreground="#00d4ff", font=("Courier", 11, "bold"), padding=8)
+    style.configure("Escape.TButton",background="#1a0a2e", foreground="#ff6ec7", font=("Courier", 13, "bold"), padding=12)
+    style.configure("Debug.TButton", background="#0a1e2e", foreground="#00ff99", font=("Courier", 13, "bold"), padding=12)
+    style.configure("Add.TButton",   background="#0a2e1e", foreground="#44ffaa", font=("Courier", 11, "bold"), padding=8)
+    style.configure("Quit.TButton",  background="#2e0a0a", foreground="#ff4444", font=("Courier", 11, "bold"), padding=8)
+    style.configure("Sep.TLabel",    background="#1a1a2e", foreground="#444466", font=("Courier", 9))
     style.configure("TCombobox", fieldbackground="#16213e", foreground="#e0e0e0", background="#16213e")
     style.configure("TEntry",    fieldbackground="#16213e", foreground="#e0e0e0")
 
@@ -180,7 +181,46 @@ def build_gui() -> None:
             row=i+1, column=2, padx=8, pady=3)
         rows.append((tpl_var, vid_var, lbl_var))
 
-    # Boutons
+    # ── Bouton add/update plate
+    def open_add_plate_dialog() -> None:
+        name = simpledialog.askstring(
+            "Ajouter / mettre à jour une plate",
+            "Nom de la plate (ex: bougie) :",
+            parent=root
+        )
+        if not name:
+            return
+        name = name.strip().lower()
+        if not name:
+            return
+        img = filedialog.askopenfilename(
+            title="Choisir l'image source",
+            filetypes=[("Images", "*.jpg *.jpeg *.png *.webp"), ("Tous", "*.*")]
+        )
+        if not img:
+            return
+        script = Path(__file__).parent / "add_plate.sh"
+        try:
+            result = subprocess.run(
+                ["bash", str(script), name, img],
+                cwd=str(Path(__file__).parent),
+                capture_output=True, text=True
+            )
+        except Exception as e:
+            messagebox.showerror("Erreur add_plate", str(e))
+            return
+        output = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
+        if result.returncode != 0:
+            messagebox.showerror("Erreur add_plate", output.strip() or "Erreur inconnue")
+            return
+        messagebox.showinfo(
+            "Plate ajoutée ✅",
+            (output.strip() or "Done.") + "\n\nLe setup va se recharger."
+        )
+        root.destroy()
+        subprocess.Popen([sys.executable, str(Path(__file__).parent / "gui_setup.py")])
+
+    # ── Boutons lancement
     btn_frame = ttk.Frame(root)
     btn_frame.pack(pady=(16, 8))
     ttk.Button(btn_frame, text="\U0001f3ae  Mode ESCAPE", style="Escape.TButton",
@@ -189,6 +229,9 @@ def build_gui() -> None:
     ttk.Button(btn_frame, text="\U0001f50d  Mode DEBUG", style="Debug.TButton",
                command=lambda: save_and_launch(rows, udp_var, idle_var, det_vars, "debug", root, video_map)
                ).pack(side="left", padx=12)
+
+    ttk.Button(root, text="\u2295  Ajouter / mettre \u00e0 jour une plate", style="Add.TButton",
+               command=open_add_plate_dialog).pack(pady=(4, 4))
 
     ttk.Button(root, text="\u2716  Quitter", style="Quit.TButton",
                command=lambda: os._exit(0)).pack(pady=(4, 20))
