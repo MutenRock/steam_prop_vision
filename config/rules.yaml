@@ -1,96 +1,70 @@
-# rules.yaml — S.T.E.A.M Vision : règles de déclenchement
-#
-# enabled      : true/false
-# cooldown     : délai minimum entre deux déclenchements (s) — non utilisé en mode card
-# min_duration : durée de détection continue requise (mode person uniquement)
-# actions      : liste d'actions
-#   - type: audio   → assets/audio/<subdir>/  (aléatoire)
-#   - type: video   → assets/video/<subdir>/  (aléatoire, fullscreen)
-#   - type: image   → assets/img/<subdir>/    (aléatoire, fullscreen)
-#   - type: udp     → envoie message UDP à Loxone
-#
-# Structure assets par plaque :
-#   assets/audio/<nom_plaque>/  ← dépose les MP3 ici
-#   assets/video/<nom_plaque>/  ← dépose les MP4 ici
-#   assets/img/<nom_plaque>/    ← dépose les images ici (optionnel)
-
-rules:
-
-  # ── Mode person : joue un son d'ambiance ─────────────────────────
-  person:
-    enabled: true
-    cooldown: 5
-    min_duration: 2.0
-    actions:
-      - type: audio
-        subdir: ""            # pioche dans assets/audio/ (racine)
-      - type: udp
-        message: "STEAM_DETECT_PERSON"
-
-  # ── Cartes PLATEST ────────────────────────────────────────────────
-  plate_bougie:
-    enabled: true
-    cooldown: 8
-    min_duration: 0
-    actions:
-      - type: udp
-        message: "STEAM_CARD_BOUGIE"
-      - type: video
-        subdir: "bougie"      # assets/video/bougie/
-      - type: audio
-        subdir: "bougie"      # assets/audio/bougie/
-
-  plate_cellule:
-    enabled: true
-    cooldown: 8
-    min_duration: 0
-    actions:
-      - type: udp
-        message: "STEAM_CARD_CELLULE"
-      - type: video
-        subdir: "cellule"
-      - type: audio
-        subdir: "cellule"
-
-  plate_chaudron:
-    enabled: true
-    cooldown: 8
-    min_duration: 0
-    actions:
-      - type: udp
-        message: "STEAM_CARD_CHAUDRON"
-      - type: video
-        subdir: "chaudron"
-      - type: audio
-        subdir: "chaudron"
-
-  plate_dague:
-    enabled: true
-    cooldown: 8
-    min_duration: 0
-    actions:
-      - type: udp
-        message: "STEAM_CARD_DAGUE"
-      - type: video
-        subdir: "dague"
-      - type: audio
-        subdir: "dague"
-
-  plate_vampire:
-    enabled: true
-    cooldown: 8
-    min_duration: 0
-    actions:
-      - type: udp
-        message: "STEAM_CARD_VAMPIRE"
-      - type: video
-        subdir: "vampire"
-      - type: audio
-        subdir: "vampire"
-
-# Comportement par défaut pour les labels non listés
 default:
-  enabled: false
-  cooldown: 10
-  min_duration: 0
   actions: []
+  cooldown: 10
+  enabled: false
+  min_duration: 0
+rules:
+  person:
+    actions:
+    - subdir: ''
+      type: audio
+    - message: STEAM_DETECT_PERSON
+      type: udp
+    cooldown: 5
+    enabled: false
+    min_duration: 2
+  plate_bougie:
+    actions:
+    - message: STEAM_CARD_BOUGIE
+      type: udp
+    - subdir: bougie
+      type: video
+    - subdir: bougie
+      type: audio
+    cooldown: 8
+    enabled: true
+    min_duration: 0
+  plate_cellule:
+    actions:
+    - message: STEAM_CARD_CELLULE
+      type: udp
+    - subdir: cellule
+      type: video
+    - subdir: cellule
+      type: audio
+    cooldown: 8
+    enabled: true
+    min_duration: 0
+  plate_chaudron:
+    actions:
+    - message: STEAM_CARD_CHAUDRON
+      type: udp
+    - subdir: chaudron
+      type: video
+    - subdir: chaudron
+      type: audio
+    cooldown: 8
+    enabled: true
+    min_duration: 0
+  plate_dague:
+    actions:
+    - message: STEAM_CARD_DAGUE
+      type: udp
+    - subdir: dague
+      type: video
+    - subdir: dague
+      type: audio
+    cooldown: 8
+    enabled: true
+    min_duration: 0
+  plate_vampire:
+    actions:
+    - message: STEAM_CARD_VAMPIRE
+      type: udp
+    - subdir: vampire
+      type: video
+    - subdir: vampire
+      type: audio
+    cooldown: 8
+    enabled: true
+    min_duration: 0
