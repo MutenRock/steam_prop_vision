@@ -1,0 +1,21 @@
+[Unit]
+Description=S.T.E.A.M Vision — Reconnaissance de plates (Pi 5)
+After=network.target graphical.target
+Wants=graphical.target
+
+[Service]
+Type=simple
+User=steam
+WorkingDirectory=/home/steam/steam_prop_vision
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/steam/.Xauthority
+ExecStart=/home/steam/steam_prop_vision/.venv/bin/python apps/rpi/main.py
+Restart=on-failure
+RestartSec=5s
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=graphical.target
