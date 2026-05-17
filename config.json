@@ -1,0 +1,41 @@
+{
+  "udp_port": 5005,
+  "idle_text": "Qu'avez vous à me présenter voyageur du temps ?",
+  "detection": {
+    "min_quadrants": 2,
+    "quad_min_matches": 4,
+    "quad_threshold": 0.03
+  },
+  "cards": [
+    {
+      "id": "plate_bois",
+      "video": "/home/steam/steam_prop_vision/assets/video/bougie/castle1.mp4",
+      "label": "Bravissssssimo BG !"
+    },
+    {
+      "id": "plate_bougie",
+      "video": "/home/steam/steam_prop_vision/assets/video/cellule/castle2.mp4",
+      "label": "La bougie est détectée !"
+    },
+    {
+      "id": "plate_cellule",
+      "video": "/home/steam/steam_prop_vision/assets/video/chaudron/fear.mp4",
+      "label": "La cellule est détectée !"
+    },
+    {
+      "id": "plate_chaudron",
+      "video": "/home/steam/steam_prop_vision/assets/video/dague/vamp1.mp4",
+      "label": "Le chaudron est détecté !"
+    },
+    {
+      "id": "plate_dague",
+      "video": "/home/steam/steam_prop_vision/assets/video/vampire/transylvania_placeholder.mp4",
+      "label": "La dague est détectée !"
+    },
+    {
+      "id": "plate_vampire",
+      "video": "/home/steam/steam_prop_vision/assets/video/vampire/vampire_placeholder.mp4",
+      "label": "Le vampire est détecté !"
+    }
+  ]
+}
